@@ -133,3 +133,24 @@ jobs:
           python backtest.py
 
           echo "=== BACKTEST ENDE ==="
+
+
+      # ======================================================
+      # HISTORICAL ANALYSIS
+      # ======================================================
+
+      - name: Run historical analysis
+        run: |
+          echo "=== ANALYSIS START ==="
+
+          if [ ! -f "analysis.py" ]; then
+            echo "FEHLER: analysis.py wurde nicht gefunden."
+            echo
+            echo "Vorhandene Python-Dateien:"
+            find . -maxdepth 3 -type f -name "*.py" | sort
+            exit 1
+          fi
+
+          python analysis.py
+
+          echo "=== ANALYSIS ENDE ==="
