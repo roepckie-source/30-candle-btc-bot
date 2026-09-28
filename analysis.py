@@ -1,7 +1,7 @@
 """
 30-Kerzen BTC Bot
 Historische Analyse
-Version 0.1.0
+Version 0.1.1
 
 ZWECK:
 Analyse der vorhandenen BTC/USD 5m-Daten.
@@ -12,12 +12,18 @@ Untersucht werden:
 1. Close > Open
 2. Close > vorheriger Close
 3. Close > Close vor 2 Kerzen
-4. 5-Kerzen-Trend
-5. 10-Kerzen-Trend
+4. Close > Close vor 5 Kerzen
+5. Close > Close vor 10 Kerzen
 
-Für die verschiedenen Definitionen wird untersucht,
-wie oft innerhalb eines rollierenden 30-Kerzen-Fensters
-mindestens 26 positive Kerzen vorkommen.
+Für jede Definition wird untersucht:
+- Verteilung der positiven Kerzen innerhalb von 30er-Fenstern
+- Minimum
+- Maximum
+- Durchschnitt
+- Median
+- Standardabweichung
+- Anzahl der Fenster >= 26/30
+- Schwellen von 20/30 bis 30/30
 
 WICHTIG:
 Diese Analyse verändert die eigentliche Bot-Strategie NICHT.
@@ -30,6 +36,7 @@ import statistics
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 import config
 
@@ -89,27 +96,33 @@ def format_timestamp(timestamp: int) -> str:
 
 
 # ============================================================
-# POSITIVE KERZEN
+# DEFINITION 1
 # ============================================================
 
-def positive_open_close(candle: dict) -> bool:
+def positive_open_close(
+    candles: list[dict],
+    index: int,
+) -> bool:
     """
-    Definition 1:
-
-    Close > Open
+    Positiv, wenn Close > Open.
     """
 
-    return candle["close"] > candle["open"]
+    return (
+        candles[index]["close"]
+        > candles[index]["open"]
+    )
 
+
+# ============================================================
+# DEFINITION 2
+# ============================================================
 
 def positive_close_vs_previous(
     candles: list[dict],
     index: int,
 ) -> bool:
     """
-    Definition 2:
-
-    Close > Close der vorherigen Kerze
+    Positiv, wenn Close > Close der vorherigen Kerze.
     """
 
     if index <= 0:
@@ -121,14 +134,16 @@ def positive_close_vs_previous(
     )
 
 
+# ============================================================
+# DEFINITION 3
+# ============================================================
+
 def positive_close_vs_two_back(
     candles: list[dict],
     index: int,
 ) -> bool:
     """
-    Definition 3:
-
-    Close > Close vor 2 Kerzen
+    Positiv, wenn Close > Close vor 2 Kerzen.
     """
 
     if index < 2:
@@ -140,14 +155,16 @@ def positive_close_vs_two_back(
     )
 
 
+# ============================================================
+# DEFINITION 4
+# ============================================================
+
 def positive_5_candle_trend(
     candles: list[dict],
     index: int,
 ) -> bool:
     """
-    Definition 4:
-
-    Schlusskurs ist höher als vor 5 Kerzen.
+    Positiv, wenn Close > Close vor 5 Kerzen.
     """
 
     if index < 5:
@@ -159,14 +176,16 @@ def positive_5_candle_trend(
     )
 
 
+# ============================================================
+# DEFINITION 5
+# ============================================================
+
 def positive_10_candle_trend(
     candles: list[dict],
     index: int,
 ) -> bool:
     """
-    Definition 5:
-
-    Schlusskurs ist höher als vor 10 Kerzen.
+    Positiv, wenn Close > Close vor 10 Kerzen.
     """
 
     if index < 10:
@@ -179,13 +198,16 @@ def positive_10_candle_trend(
 
 
 # ============================================================
-# ANALYSE EINER DEFINITION
+# ANALYSE
 # ============================================================
 
 def analyze_definition(
     candles: list[dict],
     name: str,
-    positive_function,
+    positive_function: Callable[
+        [list[dict], int],
+        bool,
+    ],
 ) -> dict:
 
     positive_counts = []
@@ -204,7 +226,9 @@ def analyze_definition(
     ):
 
         window_start = (
-            index - config.CANDLE_WINDOW + 1
+            index
+            - config.CANDLE_WINDOW
+            + 1
         )
 
         positive = 0
@@ -220,7 +244,9 @@ def analyze_definition(
             ):
                 positive += 1
 
-        positive_counts.append(positive)
+        positive_counts.append(
+            positive
+        )
 
         if (
             maximum is None
@@ -252,7 +278,9 @@ def analyze_definition(
     )
 
     stdev = (
-        statistics.stdev(positive_counts)
+        statistics.stdev(
+            positive_counts
+        )
         if len(positive_counts) > 1
         else 0.0
     )
@@ -287,7 +315,7 @@ def analyze_definition(
 
 
 # ============================================================
-# AUSGABE
+# VERTEILUNG
 # ============================================================
 
 def print_distribution(
@@ -296,7 +324,7 @@ def print_distribution(
 
     print()
     print(
-        f"DISTRIBUTION: {result['name']}"
+        f"VERTEILUNG: {result['name']}"
     )
     print("-" * 70)
 
@@ -323,6 +351,10 @@ def print_distribution(
                 f"({percentage:6.2f} %)"
             )
 
+
+# ============================================================
+# ERGEBNIS
+# ============================================================
 
 def print_result(
     result: dict,
@@ -365,7 +397,7 @@ def print_result(
     )
 
     print(
-        f">= {config.MIN_POSITIVE_CANDLES}/30:          "
+        f">= {config.MIN_POSITIVE_CANDLES}/30: "
         f"{len(result['active_windows'])}"
     )
 
@@ -403,7 +435,7 @@ def print_result(
 def print_top_windows(
     result: dict,
     candles: list[dict],
-    count: int = 20,
+    count: int = 10,
 ) -> None:
 
     print()
@@ -415,12 +447,11 @@ def print_top_windows(
     print("=" * 70)
 
     sorted_windows = sorted(
-        result["active_windows"]
-        if result["active_windows"]
-        else [
+        (
             {
                 "index": (
-                    config.CANDLE_WINDOW - 1
+                    config.CANDLE_WINDOW
+                    - 1
                     + i
                 ),
                 "positive": value,
@@ -428,7 +459,7 @@ def print_top_windows(
             for i, value in enumerate(
                 result["counts"]
             )
-        ],
+        ),
         key=lambda item: item["positive"],
         reverse=True,
     )
@@ -448,8 +479,52 @@ def print_top_windows(
             f" | "
             f"{format_timestamp(candle['timestamp'])}"
             f" | "
-            f"Close ${candle['close']:,.2f}"
+            f"Close "
+            f"${candle['close']:,.2f}"
         )
+
+
+# ============================================================
+# SCHWELLENANALYSE
+# ============================================================
+
+def print_threshold_analysis(
+    result: dict,
+) -> None:
+
+    print()
+    print("=" * 70)
+    print(
+        f"SCHWELLENANALYSE - "
+        f"{result['name']}"
+    )
+    print("=" * 70)
+
+    for threshold in range(
+        20,
+        31,
+    ):
+
+        windows = sum(
+            number
+            for count, number
+            in result["distribution"].items()
+            if count >= threshold
+        )
+
+        percentage = (
+            windows
+            / result["total_windows"]
+            * 100.0
+        )
+
+        print(
+            f">= {threshold:2d}/30 : "
+            f"{windows:6d} Fenster "
+            f"({percentage:6.2f} %)"
+        )
+
+    print("=" * 70)
 
 
 # ============================================================
@@ -489,106 +564,161 @@ def print_comparison(
 
 
 # ============================================================
-# 26/30 NÄHERUNGSANALYSE
-# ============================================================
-
-def print_threshold_analysis(
-    result: dict,
-) -> None:
-
-    print()
-    print("=" * 70)
-    print(
-        f"SCHWELLENANALYSE - {result['name']}"
-    )
-    print("=" * 70)
-
-    for threshold in range(
-        20,
-        31,
-    ):
-
-        windows = sum(
-            number
-            for count, number
-            in result["distribution"].items()
-            if count >= threshold
-        )
-
-        percentage = (
-            windows
-            / result["total_windows"]
-            * 100.0
-        )
-
-        print(
-            f">= {threshold:2d}/30 : "
-            f"{windows:6d} Fenster "
-            f"({percentage:6.2f} %)"
-        )
-
-    print("=" * 70)
-
-
-# ============================================================
 # SELF TEST
 # ============================================================
 
 def self_test() -> None:
 
     print("=" * 70)
-    print("ANALYSIS SELF TEST")
+    print("ANALYSE SELBSTTEST")
     print("=" * 70)
 
     test_candles = []
 
+    # Steigender Kurs:
+    # 100, 101, 102, 103 ...
+    #
+    # Dadurch funktionieren alle Vergleichstests
+    # eindeutig.
+
     for index in range(40):
+
+        open_price = 100.0 + index
+        close_price = 101.0 + index
 
         test_candles.append(
             {
                 "timestamp": index * 300,
-                "open": 100.0,
-                "high": 101.0,
-                "low": 99.0,
-                "close": 101.0,
+                "open": open_price,
+                "high": close_price,
+                "low": open_price,
+                "close": close_price,
                 "volume": 1.0,
             }
         )
 
-    assert positive_open_close(
-        test_candles[0]
-    )
+    # --------------------------------------------------------
+    # Close > Open
+    # --------------------------------------------------------
 
-    assert positive_close_vs_previous(
-        test_candles,
-        1,
-    )
+    for index in range(40):
 
-    assert positive_close_vs_two_back(
-        test_candles,
-        2,
-    )
-
-    assert positive_5_candle_trend(
-        test_candles,
-        5,
-    )
-
-    assert positive_10_candle_trend(
-        test_candles,
-        10,
-    )
+        assert positive_open_close(
+            test_candles,
+            index,
+        )
 
     print(
-        "PASS: Positive-Kerzen-Definitionen"
+        "PASS: Close > Open"
     )
 
-    print(
-        "PASS: Trend-Definitionen"
+    # --------------------------------------------------------
+    # Close > Previous Close
+    # --------------------------------------------------------
+
+    assert (
+        positive_close_vs_previous(
+            test_candles,
+            0,
+        )
+        is False
     )
 
+    for index in range(1, 40):
+
+        assert positive_close_vs_previous(
+            test_candles,
+            index,
+        )
+
     print(
-        "PASS: Analysis Self Test"
+        "PASS: Close > vorheriger Close"
+    )
+
+    # --------------------------------------------------------
+    # Close > Close vor 2 Kerzen
+    # --------------------------------------------------------
+
+    assert (
+        positive_close_vs_two_back(
+            test_candles,
+            0,
+        )
+        is False
+    )
+
+    assert (
+        positive_close_vs_two_back(
+            test_candles,
+            1,
+        )
+        is False
+    )
+
+    for index in range(2, 40):
+
+        assert positive_close_vs_two_back(
+            test_candles,
+            index,
+        )
+
+    print(
+        "PASS: Close > Close vor 2 Kerzen"
+    )
+
+    # --------------------------------------------------------
+    # 5-Kerzen-Trend
+    # --------------------------------------------------------
+
+    for index in range(5):
+
+        assert (
+            positive_5_candle_trend(
+                test_candles,
+                index,
+            )
+            is False
+        )
+
+    for index in range(5, 40):
+
+        assert positive_5_candle_trend(
+            test_candles,
+            index,
+        )
+
+    print(
+        "PASS: Close > Close vor 5 Kerzen"
+    )
+
+    # --------------------------------------------------------
+    # 10-Kerzen-Trend
+    # --------------------------------------------------------
+
+    for index in range(10):
+
+        assert (
+            positive_10_candle_trend(
+                test_candles,
+                index,
+            )
+            is False
+        )
+
+    for index in range(10, 40):
+
+        assert positive_10_candle_trend(
+            test_candles,
+            index,
+        )
+
+    print(
+        "PASS: Close > Close vor 10 Kerzen"
+    )
+
+    print()
+    print(
+        "PASS: Analyse-Selbsttest"
     )
 
     print("=" * 70)
@@ -602,20 +732,28 @@ def main() -> None:
 
     print()
     print("=" * 70)
-    print("30-KERZEN BTC BOT - HISTORISCHE ANALYSE")
+    print(
+        "30-KERZEN BTC BOT - "
+        "HISTORISCHE ANALYSE"
+    )
     print("=" * 70)
 
     print()
     print("WICHTIG")
     print("-" * 70)
+
     print(
-        "Dies ist ausschließlich eine historische Analyse."
+        "Dies ist ausschließlich "
+        "eine historische Analyse."
     )
+
     print(
         "Es werden KEINE Trades ausgeführt."
     )
+
     print(
-        "Die aktuelle Bot-Regel wird NICHT verändert."
+        "Die aktuelle Bot-Regel wird "
+        "NICHT verändert."
     )
 
     print()
@@ -641,12 +779,6 @@ def main() -> None:
         f"{format_timestamp(first['timestamp'])}"
         f" → "
         f"{format_timestamp(last['timestamp'])}"
-    )
-
-    print()
-    print(
-        "Berechne rollierende "
-        "30-Kerzen-Fenster..."
     )
 
     definitions = [
@@ -713,14 +845,14 @@ def main() -> None:
     print("ANALYSE ABGESCHLOSSEN")
     print("=" * 70)
 
-    print()
     print(
-        "Die Analyse hat keine Strategie geändert."
+        "Die Analyse hat keine "
+        "Trading-Regel geändert."
     )
 
     print(
-        "Die 26/30-Regel bleibt weiterhin "
-        "nur eine zu prüfende Annahme."
+        "26/30 bleibt weiterhin "
+        "eine zu prüfende Annahme."
     )
 
     print("=" * 70)
