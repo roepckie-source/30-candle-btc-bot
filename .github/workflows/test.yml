@@ -89,6 +89,7 @@ jobs:
           echo "=== CSV CHECK ==="
 
           if [ -f "data/BTC_USD_5m.csv" ]; then
+
             echo "CSV gefunden."
             echo
 
@@ -106,6 +107,29 @@ jobs:
             tail -5 data/BTC_USD_5m.csv
 
           else
+
             echo "FEHLER: CSV wurde nicht erzeugt."
             exit 1
+
           fi
+
+
+      # ======================================================
+      # HISTORICAL BACKTEST
+      # ======================================================
+
+      - name: Run historical backtest
+        run: |
+          echo "=== BACKTEST START ==="
+
+          if [ ! -f "backtest.py" ]; then
+            echo "FEHLER: backtest.py wurde nicht gefunden."
+            echo
+            echo "Vorhandene Python-Dateien:"
+            find . -maxdepth 3 -type f -name "*.py" | sort
+            exit 1
+          fi
+
+          python backtest.py
+
+          echo "=== BACKTEST ENDE ==="
