@@ -1,20 +1,32 @@
 """
 30-Kerzen BTC Bot
-Vergleichstest für 2 / 3 / 5 / 10 Kerzen Abstand
+2 / 3 / 5 / 10 Kerzen Vergleich
 
-Regel je Variante:
-- 30-Kerzen-Fenster
-- mindestens 26 positive Vergleiche
-- positiv = Close[t] > Close[t-N]
-- nur das erste Signal einer zusammenhängenden Signalserie
-- keine überlappenden Trades
-- Einstieg: nächste 5m-Kerze zum Open
-- Haltedauer: 2h oder 4h
-- 0,10% Gebühr je Seite
-- 0,05% Slippage je Seite
-- $100 Startkapital
-- 10% Positionsgröße
-- PAPER ONLY
+Historischer Paper-Backtest.
+
+Varianten:
+    Close[t] > Close[t-2]
+    Close[t] > Close[t-3]
+    Close[t] > Close[t-5]
+    Close[t] > Close[t-10]
+
+Für jede Variante:
+    - 30-Kerzen-Fenster
+    - mindestens 26 positive Kerzen
+    - nur erstes Signal einer Signalserie
+    - keine überlappenden Trades
+    - Einstieg nächste 5m-Kerze
+    - Haltedauer 2h und 4h
+    - 0,10% Fee je Seite
+    - 0,05% Slippage je Seite
+    - $100 Startkapital
+    - 10% Positionsgröße
+
+PAPER ONLY
+NO API KEYS
+NO WALLET
+NO REAL ORDERS
+NO LIVE TRADING
 """
 
 from pathlib import Path
@@ -44,10 +56,81 @@ HORIZONS = {
 }
 
 
+# ============================================================
+# CSV EINLESEN
+# ============================================================
+
+def parse_timestamp(value):
+    """
+    Unterstützt mehrere mögliche Timestamp-Formate.
+    """
+
+    if value is None:
+        return None
+
+    value = str(value).strip()
+
+    if not value:
+        return None
+
+    # ISO / ISO-Z
+    try:
+        ts = datetime.fromisoformat(
+            value.replace("Z", "+00:00")
+        )
+
+        if ts.tzinfo is None:
+            ts = ts.replace(
+                tzinfo=timezone.utc
+            )
+
+        return ts.astimezone(timezone.utc)
+
+    except ValueError:
+        pass
+
+    # Unix Timestamp
+    try:
+        number = float(value)
+
+        # Millisekunden erkennen
+        if number > 10_000_000_000:
+            number = number / 1000.0
+
+        return datetime.fromtimestamp(
+            number,
+            tz=timezone.utc
+        )
+
+    except (ValueError, OverflowError):
+        return None
+
+
 def load_data():
+
+    print()
+    print("CSV EINLESEN")
+    print("-" * 78)
+    print(
+        f"Datei: {CSV_FILE}"
+    )
+
     if not CSV_FILE.exists():
+
         raise FileNotFoundError(
             f"CSV nicht gefunden: {CSV_FILE}"
+        )
+
+    file_size = CSV_FILE.stat().st_size
+
+    print(
+        f"Dateigröße: {file_size} Bytes"
+    )
+
+    if file_size == 0:
+
+        raise ValueError(
+            "CSV-Datei ist leer."
         )
 
     rows = []
@@ -56,9 +139,15 @@ def load_data():
         "r",
         encoding="utf-8-sig",
         newline=""
-    ) as f:
+    ) as file:
 
-        reader = csv.DictReader(f)
+        reader = csv.DictReader(file)
+
+        fieldnames = reader.fieldnames or []
+
+        print(
+            f"CSV-Spalten: {fieldnames}"
+        )
 
         required = {
             "timestamp",
@@ -69,68 +158,123 @@ def load_data():
             "volume",
         }
 
-        missing = required - set(
-            reader.fieldnames or []
+        missing = (
+            required
+            - set(fieldnames)
         )
 
         if missing:
+
             raise ValueError(
-                f"Fehlende CSV-Spalten: "
-                f"{sorted(missing)}"
+                "CSV enthält nicht die "
+                f"erwarteten Spalten. "
+                f"Fehlen: {sorted(missing)}"
             )
+
+        total_rows = 0
+        invalid_rows = 0
 
         for row in reader:
 
+            total_rows += 1
+
             try:
 
-                timestamp = datetime.fromisoformat(
-                    row["timestamp"].replace(
-                        "Z",
-                        "+00:00"
-                    )
+                timestamp = parse_timestamp(
+                    row.get("timestamp")
                 )
 
-                if timestamp.tzinfo is None:
-                    timestamp = timestamp.replace(
-                        tzinfo=timezone.utc
-                    )
+                if timestamp is None:
+                    invalid_rows += 1
+                    continue
+
+                open_price = float(
+                    row["open"]
+                )
+
+                high_price = float(
+                    row["high"]
+                )
+
+                low_price = float(
+                    row["low"]
+                )
+
+                close_price = float(
+                    row["close"]
+                )
+
+                volume = float(
+                    row["volume"]
+                )
 
                 rows.append(
                     {
                         "timestamp": timestamp,
-                        "open": float(row["open"]),
-                        "high": float(row["high"]),
-                        "low": float(row["low"]),
-                        "close": float(row["close"]),
-                        "volume": float(row["volume"]),
+                        "open": open_price,
+                        "high": high_price,
+                        "low": low_price,
+                        "close": close_price,
+                        "volume": volume,
                     }
                 )
 
             except (
                 TypeError,
-                ValueError
+                ValueError,
+                KeyError
             ):
-                continue
+
+                invalid_rows += 1
+
+        print(
+            f"CSV-Datenzeilen: {total_rows}"
+        )
+
+        print(
+            f"Ungültige Zeilen: {invalid_rows}"
+        )
 
     rows.sort(
-        key=lambda x: x["timestamp"]
+        key=lambda row:
+        row["timestamp"]
     )
 
+    # Doppelte Zeitstempel entfernen
     unique = []
+
     seen = set()
 
     for row in rows:
 
-        key = row["timestamp"]
+        timestamp = row["timestamp"]
 
-        if key in seen:
+        if timestamp in seen:
             continue
 
-        seen.add(key)
+        seen.add(timestamp)
+
         unique.append(row)
+
+    print(
+        f"Gültige eindeutige Kerzen: "
+        f"{len(unique)}"
+    )
+
+    if not unique:
+
+        raise ValueError(
+            "CSV wurde gefunden, aber es "
+            "konnten KEINE gültigen Kerzen "
+            "eingelesen werden."
+        )
 
     return unique
 
+
+# ============================================================
+# POSITIVE KERZEN
+# ============================================================
 
 def positive_count(
     candles,
@@ -138,48 +282,56 @@ def positive_count(
     lookback
 ):
     """
-    Zählt innerhalb der letzten 30 Kerzen:
+    Positive Bedingung:
 
         Close[t] > Close[t-lookback]
+
+    Es werden genau die letzten
+    30 Kerzen betrachtet.
     """
 
-    start = (
+    start_index = (
         end_index
         - WINDOW
         + 1
     )
 
-    if start < lookback:
+    if start_index < lookback:
+
         return None
 
     count = 0
 
     for i in range(
-        start,
+        start_index,
         end_index + 1
     ):
 
-        if (
+        current_close = (
             candles[i]["close"]
-            >
-            candles[i - lookback]["close"]
-        ):
+        )
+
+        previous_close = (
+            candles[
+                i - lookback
+            ]["close"]
+        )
+
+        if current_close > previous_close:
+
             count += 1
 
     return count
 
 
+# ============================================================
+# SIGNALSERIEN
+# ============================================================
+
 def find_signal_series(
     candles,
     lookback
 ):
-    """
-    Eine Signalserie beginnt beim ersten
-    aktiven 30-Kerzen-Fenster.
-
-    Solange das Fenster aktiv bleibt,
-    werden keine neuen Signale erzeugt.
-    """
 
     active = [
         False
@@ -212,11 +364,11 @@ def find_signal_series(
 
     signals = []
 
-    for i, is_active in enumerate(
-        active
+    for i in range(
+        len(candles)
     ):
 
-        if not is_active:
+        if not active[i]:
             continue
 
         previous_active = (
@@ -224,6 +376,7 @@ def find_signal_series(
             and active[i - 1]
         )
 
+        # Noch dieselbe Signalserie
         if previous_active:
             continue
 
@@ -235,35 +388,37 @@ def find_signal_series(
         signals.append(
             {
                 "signal_index": i,
+
                 "signal_timestamp":
-                    candles[i]["timestamp"],
+                    candles[
+                        i
+                    ]["timestamp"],
+
                 "positive_count":
                     counts[i],
+
                 "entry_index":
                     entry_index,
+
                 "entry_timestamp":
-                    candles[entry_index]["timestamp"],
+                    candles[
+                        entry_index
+                    ]["timestamp"],
             }
         )
 
     return signals
 
 
+# ============================================================
+# TRADE
+# ============================================================
+
 def build_trade(
     signal,
     candles,
     horizon_bars
 ):
-    """
-    Einstieg:
-        nächste 5m-Kerze zum Open
-
-    Ausstieg:
-        Schlusskurs nach gewünschter Haltedauer.
-
-    2h = 24 x 5 Minuten
-    4h = 48 x 5 Minuten
-    """
 
     entry_index = (
         signal["entry_index"]
@@ -276,26 +431,34 @@ def build_trade(
     )
 
     if exit_index >= len(candles):
+
         return None
 
     raw_entry = float(
-        candles[entry_index]["open"]
+        candles[
+            entry_index
+        ]["open"]
     )
 
     raw_exit = float(
-        candles[exit_index]["close"]
+        candles[
+            exit_index
+        ]["close"]
     )
 
+    # Long Entry mit Slippage
     effective_entry = (
         raw_entry
         * (1.0 + SLIPPAGE)
     )
 
+    # Long Exit mit Slippage
     effective_exit = (
         raw_exit
         * (1.0 - SLIPPAGE)
     )
 
+    # Gebühren auf Entry und Exit
     net_multiple = (
         effective_exit
         / effective_entry
@@ -306,7 +469,8 @@ def build_trade(
     )
 
     net_return = (
-        net_multiple - 1.0
+        net_multiple
+        - 1.0
     )
 
     return {
@@ -316,7 +480,9 @@ def build_trade(
             exit_index,
 
         "exit_timestamp":
-            candles[exit_index]["timestamp"],
+            candles[
+                exit_index
+            ]["timestamp"],
 
         "raw_entry":
             raw_entry,
@@ -335,6 +501,10 @@ def build_trade(
     }
 
 
+# ============================================================
+# KEINE ÜBERLAPPENDEN TRADES
+# ============================================================
+
 def select_non_overlapping_trades(
     signals,
     candles,
@@ -345,6 +515,8 @@ def select_non_overlapping_trades(
 
     next_allowed_entry = -1
 
+    skipped_overlap = 0
+
     for signal in signals:
 
         if (
@@ -352,6 +524,9 @@ def select_non_overlapping_trades(
             <
             next_allowed_entry
         ):
+
+            skipped_overlap += 1
+
             continue
 
         trade = build_trade(
@@ -370,14 +545,20 @@ def select_non_overlapping_trades(
             + 1
         )
 
-    return trades
+    return trades, skipped_overlap
 
+
+# ============================================================
+# PORTFOLIO
+# ============================================================
 
 def run_portfolio(
     trades
 ):
 
-    capital = STARTING_CAPITAL
+    capital = (
+        STARTING_CAPITAL
+    )
 
     equity_curve = [
         capital
@@ -442,7 +623,9 @@ def run_portfolio(
             losing += 1
             gross_loss += abs(pnl)
 
-    total_trades = len(trades)
+    total_trades = len(
+        trades
+    )
 
     if gross_loss > 0:
 
@@ -459,7 +642,28 @@ def run_portfolio(
 
         profit_factor = 0.0
 
-    peak = STARTING_CAPITAL
+    if trade_returns:
+
+        average_trade = (
+            statistics.mean(
+                trade_returns
+            )
+        )
+
+        median_trade = (
+            statistics.median(
+                trade_returns
+            )
+        )
+
+    else:
+
+        average_trade = 0.0
+        median_trade = 0.0
+
+    peak = (
+        STARTING_CAPITAL
+    )
 
     max_drawdown = 0.0
 
@@ -481,6 +685,7 @@ def run_portfolio(
         )
 
     return {
+
         "trades":
             total_trades,
 
@@ -492,22 +697,20 @@ def run_portfolio(
 
         "win_rate":
             (
-                winning / total_trades
+                winning
+                / total_trades
                 if total_trades
                 else 0.0
             ),
 
+        "average_trade":
+            average_trade,
+
+        "median_trade":
+            median_trade,
+
         "profit_factor":
             profit_factor,
-
-        "average_trade":
-            (
-                statistics.mean(
-                    trade_returns
-                )
-                if trade_returns
-                else 0.0
-            ),
 
         "ending_capital":
             capital,
@@ -530,15 +733,34 @@ def run_portfolio(
     }
 
 
-def format_pf(value):
+# ============================================================
+# FORMAT
+# ============================================================
+
+def format_profit_factor(
+    value
+):
 
     if math.isinf(value):
+
         return "INF"
 
     return f"{value:.2f}"
 
 
+# ============================================================
+# SELF TEST
+# ============================================================
+
 def self_test():
+
+    print()
+    print(
+        "SELF-TEST"
+    )
+    print(
+        "-" * 78
+    )
 
     assert WINDOW == 30
 
@@ -548,13 +770,18 @@ def self_test():
         2,
         3,
         5,
-        10,
+        10
     ]
 
     assert HORIZONS["2h"] == 24
 
     assert HORIZONS["4h"] == 48
 
+    print(
+        "PASS: Konfiguration"
+    )
+
+    # Steigende Kurse
     candles = []
 
     for i in range(120):
@@ -592,23 +819,33 @@ def self_test():
 
     for lookback in LOOKBACKS:
 
-        signals = find_signal_series(
-            candles,
-            lookback
+        signals = (
+            find_signal_series(
+                candles,
+                lookback
+            )
         )
 
-        assert len(signals) == 1, (
-            f"Self-test Fehler bei "
-            f"{lookback} Kerzen."
+        assert len(
+            signals
+        ) == 1
+
+        print(
+            f"PASS: "
+            f"{lookback} Kerzen"
         )
 
+    # Seitwärtsmarkt:
+    # Kosten müssen zu einem Verlust führen.
     signal = {
 
         "signal_index":
             30,
 
         "signal_timestamp":
-            candles[30]["timestamp"],
+            candles[
+                30
+            ]["timestamp"],
 
         "positive_count":
             30,
@@ -617,7 +854,9 @@ def self_test():
             31,
 
         "entry_timestamp":
-            candles[31]["timestamp"],
+            candles[
+                31
+            ]["timestamp"],
     }
 
     flat = []
@@ -660,7 +899,12 @@ def self_test():
     assert trade is not None
 
     assert (
-        trade["net_return"] < 0
+        trade["net_return"]
+        < 0
+    )
+
+    print(
+        "PASS: Gebühren/Slippage"
     )
 
     print(
@@ -668,23 +912,30 @@ def self_test():
     )
 
 
+# ============================================================
+# DETAIL
+# ============================================================
+
 def print_detail(
-    label,
+    horizon_label,
     lookback,
     signals,
     trades,
+    skipped_overlap,
     result
 ):
 
     print()
-
     print(
         "=" * 78
     )
 
     print(
-        f"{label} | "
-        f"Close > Close-{lookback}"
+        f"REGEL: Close > Close-{lookback}"
+    )
+
+    print(
+        f"HALTEDAUER: {horizon_label}"
     )
 
     print(
@@ -702,6 +953,13 @@ def print_detail(
     )
 
     print(
+        f"Übersprungene Overlaps:   "
+        f"{skipped_overlap}"
+    )
+
+    print()
+
+    print(
         f"Gewinntrades:             "
         f"{result['wins']}"
     )
@@ -716,20 +974,29 @@ def print_detail(
         f"{result['win_rate']:.2%}"
     )
 
+    print()
+
     print(
         f"Ø Netto-Trade:            "
         f"{result['average_trade']:.3%}"
     )
 
     print(
+        f"Median Netto-Trade:       "
+        f"{result['median_trade']:.3%}"
+    )
+
+    print(
         f"Profit Factor:            "
-        f"{format_pf(result['profit_factor'])}"
+        f"{format_profit_factor(result['profit_factor'])}"
     )
 
     print(
         f"Max Drawdown:             "
         f"{result['max_drawdown']:.3%}"
     )
+
+    print()
 
     print(
         f"Startkapital:             "
@@ -749,28 +1016,37 @@ def print_detail(
     if trades:
 
         print()
+        print(
+            "TRADES"
+        )
 
-        print("Trades:")
+        print(
+            "-" * 78
+        )
 
-        for n, trade in enumerate(
+        for number, trade in enumerate(
             trades,
             start=1
         ):
 
             print(
-                f"  {n:>2} | "
+                f"{number:>3} | "
                 f"{trade['signal_timestamp']} | "
                 f"{trade['positive_count']}/30 | "
                 f"Entry "
-                f"{trade['raw_entry']:.2f} | "
+                f"${trade['raw_entry']:.2f} | "
                 f"Exit "
-                f"{trade['raw_exit']:.2f} | "
+                f"${trade['raw_exit']:.2f} | "
                 f"Net "
                 f"{trade['net_return']:.3%} | "
                 f"PnL "
                 f"${trade['pnl']:.4f}"
             )
 
+
+# ============================================================
+# MAIN
+# ============================================================
 
 def main():
 
@@ -821,7 +1097,8 @@ def main():
 
     print(
         f"Schwelle:                "
-        f"{THRESHOLD}/{WINDOW}"
+        f"{THRESHOLD}/"
+        f"{WINDOW}"
     )
 
     print(
@@ -853,8 +1130,17 @@ def main():
 
     candles = load_data()
 
-    print()
+    # Sicherheitsprüfung
+    if len(candles) < WINDOW:
 
+        raise ValueError(
+            f"Zu wenige Kerzen: "
+            f"{len(candles)}. "
+            f"Mindestens {WINDOW} "
+            f"werden benötigt."
+        )
+
+    print()
     print(
         "DATEN"
     )
@@ -886,7 +1172,6 @@ def main():
     ) in HORIZONS.items():
 
         print()
-
         print()
 
         print(
@@ -911,7 +1196,10 @@ def main():
                 )
             )
 
-            trades = (
+            (
+                trades,
+                skipped_overlap
+            ) = (
                 select_non_overlapping_trades(
                     signals,
                     candles,
@@ -934,7 +1222,35 @@ def main():
                     "signals":
                         len(signals),
 
-                    **result,
+                    "trades":
+                        result["trades"],
+
+                    "wins":
+                        result["wins"],
+
+                    "losses":
+                        result["losses"],
+
+                    "win_rate":
+                        result["win_rate"],
+
+                    "profit_factor":
+                        result["profit_factor"],
+
+                    "portfolio_return":
+                        result[
+                            "portfolio_return"
+                        ],
+
+                    "max_drawdown":
+                        result[
+                            "max_drawdown"
+                        ],
+
+                    "ending_capital":
+                        result[
+                            "ending_capital"
+                        ],
                 }
             )
 
@@ -943,11 +1259,15 @@ def main():
                 lookback,
                 signals,
                 trades,
+                skipped_overlap,
                 result
             )
 
-    print()
+    # ========================================================
+    # VERGLEICHSTABELLE
+    # ========================================================
 
+    print()
     print()
 
     print(
@@ -964,7 +1284,7 @@ def main():
 
     print(
         f"{'Regel':>8} "
-        f"{'Horizon':>8} "
+        f"{'Zeit':>8} "
         f"{'Signale':>8} "
         f"{'Trades':>8} "
         f"{'Win%':>8} "
@@ -974,15 +1294,19 @@ def main():
         f"{'End $':>10}"
     )
 
+    print(
+        "-" * 78
+    )
+
     for row in all_results:
 
         print(
-            f"{row['lookback']:>7} "
+            f"{row['lookback']:>8} "
             f"{row['horizon']:>8} "
             f"{row['signals']:>8} "
             f"{row['trades']:>8} "
             f"{row['win_rate']:>7.2%} "
-            f"{format_pf(row['profit_factor']):>8} "
+            f"{format_profit_factor(row['profit_factor']):>8} "
             f"{row['portfolio_return']:>9.2%} "
             f"{row['max_drawdown']:>9.2%} "
             f"{row['ending_capital']:>10.2f}"
@@ -1008,10 +1332,12 @@ def main():
     )
 
     print(
-        "Dies ist ein unabhängiger "
-        "historischer Paper-Backtest."
+        "Dies ist ausschließlich "
+        "ein historischer "
+        "Paper-Backtest."
     )
 
 
 if __name__ == "__main__":
+
     main()
