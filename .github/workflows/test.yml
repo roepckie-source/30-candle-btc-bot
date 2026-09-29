@@ -46,9 +46,7 @@ jobs:
           echo "============================================================"
           echo "REPOSITORY CHECK"
           echo "============================================================"
-
           pwd
-
           echo
           echo "Dateien und Ordner:"
           find . -maxdepth 3 -printf "%y %p\n" | sort
@@ -63,10 +61,8 @@ jobs:
           echo "============================================================"
           echo "DATA PFAD CHECK"
           echo "============================================================"
-
           echo "Aktuelles Verzeichnis:"
           pwd
-
           echo
           echo "Prüfung data:"
 
@@ -94,13 +90,10 @@ jobs:
           echo "============================================================"
           echo "DATA ORDNER VORBEREITEN"
           echo "============================================================"
-
           mkdir -p data
-
           echo
           echo "data:"
           ls -ld data
-
           echo
           echo "Inhalt:"
           ls -la data
@@ -115,7 +108,6 @@ jobs:
           echo "============================================================"
           echo "CONFIG TEST"
           echo "============================================================"
-
           python config.py
 
 
@@ -128,7 +120,6 @@ jobs:
           echo "============================================================"
           echo "SIGNAL TEST"
           echo "============================================================"
-
           python signals.py
 
 
@@ -141,7 +132,6 @@ jobs:
           echo "============================================================"
           echo "BTC 5m MARKTDATEN"
           echo "============================================================"
-
           python market_data.py
 
 
@@ -156,35 +146,25 @@ jobs:
           echo "============================================================"
 
           if [ -f "data/BTC_USD_5m.csv" ]; then
-
             echo "CSV gefunden."
-
             echo
             echo "Datei:"
             ls -lh data/BTC_USD_5m.csv
-
             echo
             echo "Zeilen:"
             wc -l data/BTC_USD_5m.csv
-
             echo
             echo "Erste Zeilen:"
             head -5 data/BTC_USD_5m.csv
-
             echo
             echo "Letzte Zeilen:"
             tail -5 data/BTC_USD_5m.csv
-
           else
-
             echo "FEHLER: BTC CSV wurde nicht erzeugt."
-
             echo
             echo "Inhalt data/:"
             ls -la data
-
             exit 1
-
           fi
 
 
@@ -254,11 +234,9 @@ jobs:
 
           if [ ! -f "independent_backtest.py" ]; then
             echo "FEHLER: independent_backtest.py wurde nicht gefunden."
-
             echo
             echo "Vorhandene Python-Dateien:"
             find . -maxdepth 3 -type f -name "*.py" | sort
-
             exit 1
           fi
 
@@ -283,11 +261,9 @@ jobs:
 
           echo
           echo "Download abgeschlossen."
-
           echo
           echo "Datei:"
           ls -lh data/sii_exec_matrix_btc5m.parquet
-
           echo
           echo "Dateityp:"
           file data/sii_exec_matrix_btc5m.parquet
@@ -310,11 +286,9 @@ jobs:
 
           if [ ! -f "polymarket_btc5m_import.py" ]; then
             echo "FEHLER: polymarket_btc5m_import.py fehlt."
-
             echo
             echo "Vorhandene Python-Dateien:"
             find . -maxdepth 3 -type f -name "*.py" | sort
-
             exit 1
           fi
 
@@ -332,40 +306,115 @@ jobs:
           echo "============================================================"
 
           if [ -f "data/polymarket_btc5m.csv" ]; then
-
             echo "Polymarket CSV gefunden."
-
             echo
             echo "Datei:"
             ls -lh data/polymarket_btc5m.csv
-
             echo
             echo "Zeilen:"
             wc -l data/polymarket_btc5m.csv
-
             echo
             echo "Erste Zeilen:"
             head -5 data/polymarket_btc5m.csv
-
             echo
             echo "Letzte Zeilen:"
             tail -5 data/polymarket_btc5m.csv
-
           else
-
             echo "FEHLER: Polymarket CSV wurde nicht erzeugt."
-
             echo
             echo "Inhalt data/:"
             ls -la data
-
             exit 1
-
           fi
 
 
       # ============================================================
-      # 18. ABSCHLUSS
+      # 18. BTC DATEN FÜR POLYMARKET ZEITRAUM
+      # ============================================================
+
+      - name: Download BTC data for Polymarket period
+        run: |
+          echo "============================================================"
+          echo "BTC DATEN FÜR POLYMARKET ZEITRAUM"
+          echo "============================================================"
+
+          if [ ! -f "download_btc_polymarket_period.py" ]; then
+            echo "FEHLER: download_btc_polymarket_period.py fehlt."
+            echo
+            echo "Vorhandene Python-Dateien:"
+            find . -maxdepth 3 -type f -name "*.py" | sort
+            exit 1
+          fi
+
+          python download_btc_polymarket_period.py
+
+
+      # ============================================================
+      # 19. BTC POLYMARKET CSV CHECK
+      # ============================================================
+
+      - name: Check BTC Polymarket period CSV
+        run: |
+          echo "============================================================"
+          echo "BTC POLYMARKET ZEITRAUM CSV CHECK"
+          echo "============================================================"
+
+          if [ -f "data/BTC_USD_5m_polymarket_period.csv" ]; then
+            echo "BTC Polymarket CSV gefunden."
+            echo
+            echo "Datei:"
+            ls -lh data/BTC_USD_5m_polymarket_period.csv
+            echo
+            echo "Zeilen:"
+            wc -l data/BTC_USD_5m_polymarket_period.csv
+            echo
+            echo "Erste Zeilen:"
+            head -5 data/BTC_USD_5m_polymarket_period.csv
+            echo
+            echo "Letzte Zeilen:"
+            tail -5 data/BTC_USD_5m_polymarket_period.csv
+          else
+            echo "FEHLER: BTC Polymarket CSV wurde nicht erzeugt."
+            echo
+            echo "Inhalt data/:"
+            ls -la data
+            exit 1
+          fi
+
+
+      # ============================================================
+      # 20. POLYMARKET 26/30 SIGNAL ANALYSE
+      # ============================================================
+
+      - name: Run Polymarket 26/30 signal analysis
+        run: |
+          echo "============================================================"
+          echo "POLYMARKET 26/30 SIGNAL ANALYSE"
+          echo "============================================================"
+
+          if [ ! -f "polymarket_signal_analysis.py" ]; then
+            echo "FEHLER: polymarket_signal_analysis.py fehlt."
+            echo
+            echo "Vorhandene Python-Dateien:"
+            find . -maxdepth 3 -type f -name "*.py" | sort
+            exit 1
+          fi
+
+          if [ ! -f "data/BTC_USD_5m_polymarket_period.csv" ]; then
+            echo "FEHLER: BTC Polymarket Zeitraum CSV fehlt."
+            exit 1
+          fi
+
+          if [ ! -f "data/polymarket_btc5m.csv" ]; then
+            echo "FEHLER: Polymarket CSV fehlt."
+            exit 1
+          fi
+
+          python polymarket_signal_analysis.py
+
+
+      # ============================================================
+      # 21. ABSCHLUSS
       # ============================================================
 
       - name: Final status
@@ -385,6 +434,8 @@ jobs:
           echo "2/3/5/10 Candle Backtest:    OK"
           echo "Polymarket Dataset:           OK"
           echo "Polymarket Import:            OK"
+          echo "BTC Polymarket Period:        OK"
+          echo "Polymarket 26/30 Analysis:    OK"
           echo
           echo "============================================================"
           echo "PAPER TRADING ONLY"
