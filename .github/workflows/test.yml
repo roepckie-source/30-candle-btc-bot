@@ -87,7 +87,7 @@ jobs:
 
 
       # ============================================================
-      # 7. MARKET DATA
+      # 7. BTC 5M MARKET DATA
       # ============================================================
 
       - name: Download BTC 5m market data
@@ -212,7 +212,45 @@ jobs:
 
 
       # ============================================================
-      # 13. POLYMARKET DATA DOWNLOAD
+      # 13. DOWNLOAD POLYMARKET SOURCE DATASET
+      # ============================================================
+
+      - name: Download Polymarket source dataset
+        run: |
+          echo "============================================================"
+          echo "DOWNLOAD POLYMARKET SOURCE DATASET"
+          echo "============================================================"
+
+          mkdir -p data
+
+          echo
+          echo "Lade:"
+          echo "sii_exec_matrix_btc5m.parquet"
+          echo
+
+          curl -L --fail --retry 3 \
+            "https://github.com/Filip303/Polymarket/raw/refs/heads/main/data/sii_exec_matrix_btc5m.parquet" \
+            -o "data/sii_exec_matrix_btc5m.parquet"
+
+          echo
+          echo "DOWNLOAD CHECK"
+          echo "------------------------------------------------------------"
+
+          if [ ! -f "data/sii_exec_matrix_btc5m.parquet" ]; then
+            echo "FEHLER: Parquet-Datei wurde nicht heruntergeladen."
+            exit 1
+          fi
+
+          echo
+          echo "Datei erfolgreich heruntergeladen:"
+          ls -lh data/sii_exec_matrix_btc5m.parquet
+
+          echo
+          echo "Polymarket Quelldatei vorhanden."
+
+
+      # ============================================================
+      # 14. POLYMARKET BTC 5M DATASET IMPORT
       # ============================================================
 
       - name: Download Polymarket BTC 5m dataset
@@ -226,11 +264,16 @@ jobs:
             exit 1
           fi
 
+          if [ ! -f "data/sii_exec_matrix_btc5m.parquet" ]; then
+            echo "FEHLER: data/sii_exec_matrix_btc5m.parquet fehlt."
+            exit 1
+          fi
+
           python polymarket_btc5m_import.py
 
 
       # ============================================================
-      # 14. POLYMARKET DATA INSPECTION
+      # 15. POLYMARKET DATASET INSPECTION
       # ============================================================
 
       - name: Inspect Polymarket dataset
@@ -262,7 +305,7 @@ jobs:
 
 
       # ============================================================
-      # 15. POLYMARKET CSV CHECK
+      # 16. POLYMARKET CSV CHECK
       # ============================================================
 
       - name: Check Polymarket CSV
@@ -280,7 +323,9 @@ jobs:
           import csv
           from pathlib import Path
 
-          path = Path("data/polymarket_btc5m.csv")
+          path = Path(
+              "data/polymarket_btc5m.csv"
+          )
 
           with path.open(
               "r",
@@ -289,10 +334,11 @@ jobs:
           ) as f:
 
               reader = csv.DictReader(f)
-
               rows = list(reader)
 
-          print(f"Rows: {len(rows):,}")
+          print(
+              f"Rows: {len(rows):,}"
+          )
 
           if rows:
               print("Columns:")
@@ -305,7 +351,7 @@ jobs:
 
 
       # ============================================================
-      # 16. DOWNLOAD BTC DATA FOR POLYMARKET PERIOD
+      # 17. DOWNLOAD BTC DATA FOR POLYMARKET PERIOD
       # ============================================================
 
       - name: Download BTC data for Polymarket period
@@ -326,7 +372,7 @@ jobs:
 
 
       # ============================================================
-      # 17. CHECK BTC POLYMARKET PERIOD CSV
+      # 18. CHECK BTC POLYMARKET PERIOD CSV
       # ============================================================
 
       - name: Check BTC Polymarket period CSV
@@ -358,7 +404,7 @@ jobs:
 
 
       # ============================================================
-      # 18. POLYMARKET 26/30 SIGNAL ANALYSIS
+      # 19. POLYMARKET 26/30 SIGNAL ANALYSIS
       # ============================================================
 
       - name: Run Polymarket 26/30 signal analysis
@@ -386,7 +432,7 @@ jobs:
 
 
       # ============================================================
-      # 19. POLYMARKET BTC FORWARD ANALYSIS
+      # 20. POLYMARKET BTC FORWARD ANALYSIS
       # ============================================================
 
       - name: Run Polymarket BTC forward analysis
@@ -409,7 +455,7 @@ jobs:
 
 
       # ============================================================
-      # 20. FINAL STATUS
+      # 21. FINAL STATUS
       # ============================================================
 
       - name: Final status
@@ -421,19 +467,20 @@ jobs:
 
           echo
           echo "30-KERZEN BTC BOT"
-          echo "-----------------"
+          echo "------------------------------------------------------------"
 
           echo "Config:                         OK"
-          echo "Signal Tests:                  OK"
-          echo "BTC 5m Market Data:            OK"
-          echo "Historical Backtest:           OK"
-          echo "Historical Analysis:           OK"
-          echo "Forward Analysis:              OK"
-          echo "Independent Backtest:          OK"
-          echo "Polymarket Dataset:            OK"
-          echo "BTC Polymarket Period:         OK"
-          echo "Polymarket 26/30 Analysis:     OK"
-          echo "BTC Forward Analysis:          OK"
+          echo "Signal Tests:                   OK"
+          echo "BTC 5m Market Data:             OK"
+          echo "Historical Backtest:            OK"
+          echo "Historical Analysis:            OK"
+          echo "Forward Analysis:               OK"
+          echo "Independent Backtest:           OK"
+          echo "Polymarket Source Dataset:      OK"
+          echo "Polymarket Dataset Import:      OK"
+          echo "BTC Polymarket Period:          OK"
+          echo "Polymarket 26/30 Analysis:      OK"
+          echo "BTC Forward Analysis:           OK"
 
           echo
           echo "------------------------------------------------------------"
