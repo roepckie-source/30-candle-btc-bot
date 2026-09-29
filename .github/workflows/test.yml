@@ -1,4 +1,4 @@
-name: 30-Kerzen BTC Bot - Test
+name: 30-Kerzen BTC Bot Tests
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. REPOSITORY
+      # 1. CHECKOUT
       # ============================================================
 
       - name: Checkout repository
@@ -24,11 +24,11 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
 
       # ============================================================
-      # 3. DEPENDENCIES
+      # 3. INSTALL DEPENDENCIES
       # ============================================================
 
       - name: Install dependencies
@@ -41,145 +41,116 @@ jobs:
       # 4. REPOSITORY CHECK
       # ============================================================
 
-      - name: Show repository files
+      - name: Repository check
         run: |
           echo "============================================================"
           echo "REPOSITORY CHECK"
           echo "============================================================"
-          pwd
+
           echo
-          echo "Dateien und Ordner:"
-          find . -maxdepth 3 -printf "%y %p\n" | sort
+          echo "Python files:"
+          find . -maxdepth 3 -type f -name "*.py" | sort
+
+          echo
+          echo "Workflow files:"
+          find .github -maxdepth 3 -type f | sort || true
+
+          echo
+          echo "Repository root:"
+          ls -lah
 
 
       # ============================================================
-      # 5. DATA PFAD PRÜFEN
+      # 5. CONFIG TEST
       # ============================================================
 
-      - name: Check data path
+      - name: Run config
         run: |
           echo "============================================================"
-          echo "DATA PFAD CHECK"
+          echo "CONFIG"
           echo "============================================================"
-          echo "Aktuelles Verzeichnis:"
-          pwd
-          echo
-          echo "Prüfung data:"
 
-          if [ -e "data" ]; then
-            echo "data existiert."
-
-            if [ -d "data" ]; then
-              echo "data ist ein ORDNER."
-            else
-              echo "FEHLER: data ist KEIN ORDNER."
-              ls -la data
-              exit 1
-            fi
-          else
-            echo "data existiert noch nicht."
-          fi
-
-
-      # ============================================================
-      # 6. DATA ORDNER VORBEREITEN
-      # ============================================================
-
-      - name: Prepare data directory
-        run: |
-          echo "============================================================"
-          echo "DATA ORDNER VORBEREITEN"
-          echo "============================================================"
-          mkdir -p data
-          echo
-          echo "data:"
-          ls -ld data
-          echo
-          echo "Inhalt:"
-          ls -la data
-
-
-      # ============================================================
-      # 7. CONFIG TEST
-      # ============================================================
-
-      - name: Test config
-        run: |
-          echo "============================================================"
-          echo "CONFIG TEST"
-          echo "============================================================"
           python config.py
 
 
       # ============================================================
-      # 8. SIGNAL TEST
+      # 6. SIGNAL TEST
       # ============================================================
 
-      - name: Test signals
+      - name: Run signal tests
         run: |
           echo "============================================================"
-          echo "SIGNAL TEST"
+          echo "SIGNAL TESTS"
           echo "============================================================"
+
           python signals.py
 
 
       # ============================================================
-      # 9. BTC MARKET DATA
+      # 7. MARKET DATA
       # ============================================================
 
-      - name: Download and validate BTC 5m data
+      - name: Download BTC 5m market data
         run: |
           echo "============================================================"
-          echo "BTC 5m MARKTDATEN"
+          echo "BTC 5M MARKET DATA"
           echo "============================================================"
+
+          if [ -e "data" ] && [ ! -d "data" ]; then
+            echo "FEHLER: 'data' existiert als Datei."
+            echo "Bitte die Datei 'data' aus dem Repository entfernen."
+            exit 1
+          fi
+
+          mkdir -p data
+
           python market_data.py
 
 
       # ============================================================
-      # 10. BTC CSV CHECK
+      # 8. CHECK BTC DATA
       # ============================================================
 
-      - name: Check generated BTC CSV
+      - name: Check BTC data
         run: |
           echo "============================================================"
           echo "BTC CSV CHECK"
           echo "============================================================"
 
-          if [ -f "data/BTC_USD_5m.csv" ]; then
-            echo "CSV gefunden."
-            echo
-            echo "Datei:"
-            ls -lh data/BTC_USD_5m.csv
-            echo
-            echo "Zeilen:"
-            wc -l data/BTC_USD_5m.csv
-            echo
-            echo "Erste Zeilen:"
-            head -5 data/BTC_USD_5m.csv
-            echo
-            echo "Letzte Zeilen:"
-            tail -5 data/BTC_USD_5m.csv
-          else
-            echo "FEHLER: BTC CSV wurde nicht erzeugt."
-            echo
-            echo "Inhalt data/:"
-            ls -la data
+          if [ ! -f "data/BTC_USD_5m.csv" ]; then
+            echo "FEHLER: data/BTC_USD_5m.csv fehlt."
             exit 1
           fi
 
+          echo
+          echo "Datei:"
+          ls -lh data/BTC_USD_5m.csv
+
+          echo
+          echo "Zeilen:"
+          wc -l data/BTC_USD_5m.csv
+
+          echo
+          echo "Erste Zeilen:"
+          head -5 data/BTC_USD_5m.csv
+
+          echo
+          echo "Letzte Zeilen:"
+          tail -5 data/BTC_USD_5m.csv
+
 
       # ============================================================
-      # 11. HISTORISCHER BACKTEST
+      # 9. HISTORICAL BACKTEST
       # ============================================================
 
       - name: Run historical backtest
         run: |
           echo "============================================================"
-          echo "HISTORISCHER BACKTEST"
+          echo "HISTORICAL BACKTEST"
           echo "============================================================"
 
           if [ ! -f "backtest.py" ]; then
-            echo "FEHLER: backtest.py wurde nicht gefunden."
+            echo "FEHLER: backtest.py fehlt."
             exit 1
           fi
 
@@ -187,17 +158,17 @@ jobs:
 
 
       # ============================================================
-      # 12. HISTORISCHE ANALYSE
+      # 10. HISTORICAL SIGNAL ANALYSIS
       # ============================================================
 
       - name: Run historical analysis
         run: |
           echo "============================================================"
-          echo "HISTORISCHE ANALYSE"
+          echo "HISTORICAL SIGNAL ANALYSIS"
           echo "============================================================"
 
           if [ ! -f "analysis.py" ]; then
-            echo "FEHLER: analysis.py wurde nicht gefunden."
+            echo "FEHLER: analysis.py fehlt."
             exit 1
           fi
 
@@ -205,17 +176,17 @@ jobs:
 
 
       # ============================================================
-      # 13. FORWARD ANALYSIS
+      # 11. FORWARD ANALYSIS
       # ============================================================
 
-      - name: Run forward return analysis
+      - name: Run forward analysis
         run: |
           echo "============================================================"
           echo "FORWARD ANALYSIS"
           echo "============================================================"
 
           if [ ! -f "forward_analysis.py" ]; then
-            echo "FEHLER: forward_analysis.py wurde nicht gefunden."
+            echo "FEHLER: forward_analysis.py fehlt."
             exit 1
           fi
 
@@ -223,20 +194,17 @@ jobs:
 
 
       # ============================================================
-      # 14. 2 / 3 / 5 / 10 KERZEN BACKTEST
+      # 12. INDEPENDENT BACKTEST
       # ============================================================
 
-      - name: Run 2/3/5/10 candle series backtest
+      - name: Run independent backtest
         run: |
           echo "============================================================"
-          echo "2 / 3 / 5 / 10 KERZEN BACKTEST"
+          echo "INDEPENDENT BACKTEST"
           echo "============================================================"
 
           if [ ! -f "independent_backtest.py" ]; then
-            echo "FEHLER: independent_backtest.py wurde nicht gefunden."
-            echo
-            echo "Vorhandene Python-Dateien:"
-            find . -maxdepth 3 -type f -name "*.py" | sort
+            echo "FEHLER: independent_backtest.py fehlt."
             exit 1
           fi
 
@@ -244,51 +212,17 @@ jobs:
 
 
       # ============================================================
-      # 15. POLYMARKET BTC 5m DATASET HERUNTERLADEN
+      # 13. POLYMARKET DATA DOWNLOAD
       # ============================================================
 
       - name: Download Polymarket BTC 5m dataset
         run: |
           echo "============================================================"
-          echo "POLYMARKET BTC 5m DATASET"
+          echo "POLYMARKET BTC 5M DATASET"
           echo "============================================================"
-
-          mkdir -p data
-
-          curl -fL \
-            "https://github.com/Filip303/Polymarket/raw/refs/heads/main/data/sii_exec_matrix_btc5m.parquet" \
-            -o data/sii_exec_matrix_btc5m.parquet
-
-          echo
-          echo "Download abgeschlossen."
-          echo
-          echo "Datei:"
-          ls -lh data/sii_exec_matrix_btc5m.parquet
-          echo
-          echo "Dateityp:"
-          file data/sii_exec_matrix_btc5m.parquet
-
-
-      # ============================================================
-      # 16. POLYMARKET DATASET PRÜFEN
-      # ============================================================
-
-      - name: Inspect Polymarket BTC 5m dataset
-        run: |
-          echo "============================================================"
-          echo "POLYMARKET DATASET INSPEKTION"
-          echo "============================================================"
-
-          if [ ! -f "data/sii_exec_matrix_btc5m.parquet" ]; then
-            echo "FEHLER: Parquet-Datei fehlt."
-            exit 1
-          fi
 
           if [ ! -f "polymarket_btc5m_import.py" ]; then
             echo "FEHLER: polymarket_btc5m_import.py fehlt."
-            echo
-            echo "Vorhandene Python-Dateien:"
-            find . -maxdepth 3 -type f -name "*.py" | sort
             exit 1
           fi
 
@@ -296,7 +230,39 @@ jobs:
 
 
       # ============================================================
-      # 17. POLYMARKET CSV CHECK
+      # 14. POLYMARKET DATA INSPECTION
+      # ============================================================
+
+      - name: Inspect Polymarket dataset
+        run: |
+          echo "============================================================"
+          echo "POLYMARKET DATASET INSPECTION"
+          echo "============================================================"
+
+          if [ ! -f "data/polymarket_btc5m.csv" ]; then
+            echo "FEHLER: data/polymarket_btc5m.csv fehlt."
+            exit 1
+          fi
+
+          echo
+          echo "Datei:"
+          ls -lh data/polymarket_btc5m.csv
+
+          echo
+          echo "Zeilen:"
+          wc -l data/polymarket_btc5m.csv
+
+          echo
+          echo "Header:"
+          head -1 data/polymarket_btc5m.csv
+
+          echo
+          echo "Erste 5 Datenzeilen:"
+          head -6 data/polymarket_btc5m.csv
+
+
+      # ============================================================
+      # 15. POLYMARKET CSV CHECK
       # ============================================================
 
       - name: Check Polymarket CSV
@@ -305,31 +271,41 @@ jobs:
           echo "POLYMARKET CSV CHECK"
           echo "============================================================"
 
-          if [ -f "data/polymarket_btc5m.csv" ]; then
-            echo "Polymarket CSV gefunden."
-            echo
-            echo "Datei:"
-            ls -lh data/polymarket_btc5m.csv
-            echo
-            echo "Zeilen:"
-            wc -l data/polymarket_btc5m.csv
-            echo
-            echo "Erste Zeilen:"
-            head -5 data/polymarket_btc5m.csv
-            echo
-            echo "Letzte Zeilen:"
-            tail -5 data/polymarket_btc5m.csv
-          else
-            echo "FEHLER: Polymarket CSV wurde nicht erzeugt."
-            echo
-            echo "Inhalt data/:"
-            ls -la data
+          if [ ! -f "data/polymarket_btc5m.csv" ]; then
+            echo "FEHLER: data/polymarket_btc5m.csv fehlt."
             exit 1
           fi
 
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+
+          path = Path("data/polymarket_btc5m.csv")
+
+          with path.open(
+              "r",
+              encoding="utf-8",
+              newline=""
+          ) as f:
+
+              reader = csv.DictReader(f)
+
+              rows = list(reader)
+
+          print(f"Rows: {len(rows):,}")
+
+          if rows:
+              print("Columns:")
+              for column in rows[0].keys():
+                  print(f"  {column}")
+
+          print()
+          print("CHECK OK")
+          PY
+
 
       # ============================================================
-      # 18. BTC DATEN FÜR POLYMARKET ZEITRAUM
+      # 16. DOWNLOAD BTC DATA FOR POLYMARKET PERIOD
       # ============================================================
 
       - name: Download BTC data for Polymarket period
@@ -350,40 +326,39 @@ jobs:
 
 
       # ============================================================
-      # 19. BTC POLYMARKET CSV CHECK
+      # 17. CHECK BTC POLYMARKET PERIOD CSV
       # ============================================================
 
       - name: Check BTC Polymarket period CSV
         run: |
           echo "============================================================"
-          echo "BTC POLYMARKET ZEITRAUM CSV CHECK"
+          echo "BTC POLYMARKET PERIOD CSV CHECK"
           echo "============================================================"
 
-          if [ -f "data/BTC_USD_5m_polymarket_period.csv" ]; then
-            echo "BTC Polymarket CSV gefunden."
-            echo
-            echo "Datei:"
-            ls -lh data/BTC_USD_5m_polymarket_period.csv
-            echo
-            echo "Zeilen:"
-            wc -l data/BTC_USD_5m_polymarket_period.csv
-            echo
-            echo "Erste Zeilen:"
-            head -5 data/BTC_USD_5m_polymarket_period.csv
-            echo
-            echo "Letzte Zeilen:"
-            tail -5 data/BTC_USD_5m_polymarket_period.csv
-          else
-            echo "FEHLER: BTC Polymarket CSV wurde nicht erzeugt."
-            echo
-            echo "Inhalt data/:"
-            ls -la data
+          if [ ! -f "data/BTC_USD_5m_polymarket_period.csv" ]; then
+            echo "FEHLER: BTC Polymarket Zeitraum CSV fehlt."
             exit 1
           fi
 
+          echo
+          echo "Datei:"
+          ls -lh data/BTC_USD_5m_polymarket_period.csv
+
+          echo
+          echo "Zeilen:"
+          wc -l data/BTC_USD_5m_polymarket_period.csv
+
+          echo
+          echo "Erste Zeilen:"
+          head -5 data/BTC_USD_5m_polymarket_period.csv
+
+          echo
+          echo "Letzte Zeilen:"
+          tail -5 data/BTC_USD_5m_polymarket_period.csv
+
 
       # ============================================================
-      # 20. POLYMARKET 26/30 SIGNAL ANALYSE
+      # 18. POLYMARKET 26/30 SIGNAL ANALYSIS
       # ============================================================
 
       - name: Run Polymarket 26/30 signal analysis
@@ -394,9 +369,6 @@ jobs:
 
           if [ ! -f "polymarket_signal_analysis.py" ]; then
             echo "FEHLER: polymarket_signal_analysis.py fehlt."
-            echo
-            echo "Vorhandene Python-Dateien:"
-            find . -maxdepth 3 -type f -name "*.py" | sort
             exit 1
           fi
 
@@ -414,37 +386,68 @@ jobs:
 
 
       # ============================================================
-      # 21. ABSCHLUSS
+      # 19. POLYMARKET BTC FORWARD ANALYSIS
+      # ============================================================
+
+      - name: Run Polymarket BTC forward analysis
+        run: |
+          echo "============================================================"
+          echo "POLYMARKET BTC 26/30 FORWARD ANALYSE"
+          echo "============================================================"
+
+          if [ ! -f "polymarket_forward_btc_analysis.py" ]; then
+            echo "FEHLER: polymarket_forward_btc_analysis.py fehlt."
+            exit 1
+          fi
+
+          if [ ! -f "data/BTC_USD_5m_polymarket_period.csv" ]; then
+            echo "FEHLER: BTC Polymarket Zeitraum CSV fehlt."
+            exit 1
+          fi
+
+          python polymarket_forward_btc_analysis.py
+
+
+      # ============================================================
+      # 20. FINAL STATUS
       # ============================================================
 
       - name: Final status
         run: |
           echo
           echo "============================================================"
-          echo "30-KERZEN BTC BOT - GESAMTTEST"
+          echo "FINAL STATUS"
           echo "============================================================"
+
           echo
-          echo "Config:                       OK"
-          echo "Signals:                      OK"
-          echo "BTC Market Data:              OK"
-          echo "BTC CSV:                      OK"
-          echo "Backtest:                     OK"
-          echo "Historical Analysis:          OK"
-          echo "Forward Analysis:             OK"
-          echo "2/3/5/10 Candle Backtest:    OK"
-          echo "Polymarket Dataset:           OK"
-          echo "Polymarket Import:            OK"
-          echo "BTC Polymarket Period:        OK"
-          echo "Polymarket 26/30 Analysis:    OK"
+          echo "30-KERZEN BTC BOT"
+          echo "-----------------"
+
+          echo "Config:                         OK"
+          echo "Signal Tests:                  OK"
+          echo "BTC 5m Market Data:            OK"
+          echo "Historical Backtest:           OK"
+          echo "Historical Analysis:           OK"
+          echo "Forward Analysis:              OK"
+          echo "Independent Backtest:          OK"
+          echo "Polymarket Dataset:            OK"
+          echo "BTC Polymarket Period:         OK"
+          echo "Polymarket 26/30 Analysis:     OK"
+          echo "BTC Forward Analysis:          OK"
+
           echo
-          echo "============================================================"
+          echo "------------------------------------------------------------"
+          echo "SICHERHEITSSTATUS"
+          echo "------------------------------------------------------------"
+
           echo "PAPER TRADING ONLY"
-          echo "============================================================"
-          echo
           echo "KEIN LIVE TRADING"
           echo "KEINE API KEYS"
           echo "KEIN WALLET"
           echo "KEINE PRIVATEN SCHLÜSSEL"
           echo "KEINE ECHTEN ORDERS"
+
           echo
+          echo "============================================================"
+          echo "WORKFLOW ABGESCHLOSSEN"
           echo "============================================================"
