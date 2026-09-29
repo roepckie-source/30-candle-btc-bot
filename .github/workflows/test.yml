@@ -44,18 +44,70 @@ jobs:
       - name: Show repository files
         run: |
           echo "============================================================"
-          echo "REPOSITORY"
+          echo "REPOSITORY CHECK"
           echo "============================================================"
 
           pwd
 
           echo
-          echo "Dateien:"
-          find . -maxdepth 3 -type f | sort
+          echo "Dateien und Ordner:"
+          find . -maxdepth 3 -printf "%y %p\n" | sort
 
 
       # ============================================================
-      # 5. CONFIG
+      # 5. DATA PFAD PRÜFEN
+      # ============================================================
+
+      - name: Check data path
+        run: |
+          echo "============================================================"
+          echo "DATA PFAD CHECK"
+          echo "============================================================"
+
+          echo "Aktuelles Verzeichnis:"
+          pwd
+
+          echo
+          echo "Prüfung data:"
+
+          if [ -e "data" ]; then
+            echo "data existiert."
+
+            if [ -d "data" ]; then
+              echo "data ist ein ORDNER."
+            else
+              echo "FEHLER: data ist KEIN ORDNER."
+              ls -la data
+              exit 1
+            fi
+          else
+            echo "data existiert noch nicht."
+          fi
+
+
+      # ============================================================
+      # 6. DATA ORDNER VORBEREITEN
+      # ============================================================
+
+      - name: Prepare data directory
+        run: |
+          echo "============================================================"
+          echo "DATA ORDNER VORBEREITEN"
+          echo "============================================================"
+
+          mkdir -p data
+
+          echo
+          echo "data:"
+          ls -ld data
+
+          echo
+          echo "Inhalt:"
+          ls -la data
+
+
+      # ============================================================
+      # 7. CONFIG TEST
       # ============================================================
 
       - name: Test config
@@ -68,7 +120,7 @@ jobs:
 
 
       # ============================================================
-      # 6. SIGNALS
+      # 8. SIGNAL TEST
       # ============================================================
 
       - name: Test signals
@@ -81,7 +133,7 @@ jobs:
 
 
       # ============================================================
-      # 7. BTC MARKET DATA
+      # 9. BTC MARKET DATA
       # ============================================================
 
       - name: Download and validate BTC 5m data
@@ -94,7 +146,7 @@ jobs:
 
 
       # ============================================================
-      # 8. CHECK BTC CSV
+      # 10. BTC CSV CHECK
       # ============================================================
 
       - name: Check generated BTC CSV
@@ -108,7 +160,7 @@ jobs:
             echo "CSV gefunden."
 
             echo
-            echo "Größe:"
+            echo "Datei:"
             ls -lh data/BTC_USD_5m.csv
 
             echo
@@ -126,13 +178,18 @@ jobs:
           else
 
             echo "FEHLER: BTC CSV wurde nicht erzeugt."
+
+            echo
+            echo "Inhalt data/:"
+            ls -la data
+
             exit 1
 
           fi
 
 
       # ============================================================
-      # 9. HISTORICAL BACKTEST
+      # 11. HISTORISCHER BACKTEST
       # ============================================================
 
       - name: Run historical backtest
@@ -150,7 +207,7 @@ jobs:
 
 
       # ============================================================
-      # 10. HISTORICAL ANALYSIS
+      # 12. HISTORISCHE ANALYSE
       # ============================================================
 
       - name: Run historical analysis
@@ -168,7 +225,7 @@ jobs:
 
 
       # ============================================================
-      # 11. FORWARD ANALYSIS
+      # 13. FORWARD ANALYSIS
       # ============================================================
 
       - name: Run forward return analysis
@@ -186,7 +243,7 @@ jobs:
 
 
       # ============================================================
-      # 12. 2 / 3 / 5 / 10 CANDLE BACKTEST
+      # 14. 2 / 3 / 5 / 10 KERZEN BACKTEST
       # ============================================================
 
       - name: Run 2/3/5/10 candle series backtest
@@ -197,9 +254,11 @@ jobs:
 
           if [ ! -f "independent_backtest.py" ]; then
             echo "FEHLER: independent_backtest.py wurde nicht gefunden."
+
             echo
             echo "Vorhandene Python-Dateien:"
             find . -maxdepth 3 -type f -name "*.py" | sort
+
             exit 1
           fi
 
@@ -207,7 +266,7 @@ jobs:
 
 
       # ============================================================
-      # 13. DOWNLOAD POLYMARKET BTC 5m DATASET
+      # 15. POLYMARKET BTC 5m DATASET HERUNTERLADEN
       # ============================================================
 
       - name: Download Polymarket BTC 5m dataset
@@ -218,24 +277,24 @@ jobs:
 
           mkdir -p data
 
-          curl -L \
+          curl -fL \
             "https://github.com/Filip303/Polymarket/raw/refs/heads/main/data/sii_exec_matrix_btc5m.parquet" \
             -o data/sii_exec_matrix_btc5m.parquet
 
           echo
-          echo "Downloaded file:"
+          echo "Download abgeschlossen."
+
+          echo
+          echo "Datei:"
           ls -lh data/sii_exec_matrix_btc5m.parquet
 
           echo
           echo "Dateityp:"
           file data/sii_exec_matrix_btc5m.parquet
 
-          echo
-          echo "Download erfolgreich."
-
 
       # ============================================================
-      # 14. INSPECT POLYMARKET DATASET
+      # 16. POLYMARKET DATASET PRÜFEN
       # ============================================================
 
       - name: Inspect Polymarket BTC 5m dataset
@@ -251,9 +310,11 @@ jobs:
 
           if [ ! -f "polymarket_btc5m_import.py" ]; then
             echo "FEHLER: polymarket_btc5m_import.py fehlt."
+
             echo
             echo "Vorhandene Python-Dateien:"
             find . -maxdepth 3 -type f -name "*.py" | sort
+
             exit 1
           fi
 
@@ -261,7 +322,7 @@ jobs:
 
 
       # ============================================================
-      # 15. CHECK POLYMARKET CSV
+      # 17. POLYMARKET CSV CHECK
       # ============================================================
 
       - name: Check Polymarket CSV
@@ -275,7 +336,7 @@ jobs:
             echo "Polymarket CSV gefunden."
 
             echo
-            echo "Größe:"
+            echo "Datei:"
             ls -lh data/polymarket_btc5m.csv
 
             echo
@@ -293,13 +354,18 @@ jobs:
           else
 
             echo "FEHLER: Polymarket CSV wurde nicht erzeugt."
+
+            echo
+            echo "Inhalt data/:"
+            ls -la data
+
             exit 1
 
           fi
 
 
       # ============================================================
-      # 16. FINAL STATUS
+      # 18. ABSCHLUSS
       # ============================================================
 
       - name: Final status
@@ -322,8 +388,12 @@ jobs:
           echo
           echo "============================================================"
           echo "PAPER TRADING ONLY"
+          echo "============================================================"
+          echo
           echo "KEIN LIVE TRADING"
           echo "KEINE API KEYS"
           echo "KEIN WALLET"
+          echo "KEINE PRIVATEN SCHLÜSSEL"
           echo "KEINE ECHTEN ORDERS"
+          echo
           echo "============================================================"
