@@ -1,42 +1,47 @@
 """
-30-Kerzen BTC Bot
-Polymarket Forward BTC Analysis
+POLYMARKET BTC FORWARD ANALYSIS
+Version 0.2.2
 
-Version 0.2.1
+Zweck:
+- Prüft BTC-Forward-Performance nach 26/30-Signalen
+- BTC 5-Minuten-Kerzen
+- Vergleich verschiedener Lookbacks
+- Horizonte bis 12 Stunden
+- Paper analysis only
+- Keine API Keys
+- Keine Wallet
+- Keine echten Orders
 
-Test:
-- BTC 5m
-- 30-Kerzen-Fenster
-- 26/30 Schwelle
-- Lookbacks: 2, 3, 5, 10
-- Forward-Horizonte bis 8 Stunden
-- Einstieg: Open der nächsten BTC-5m-Kerze
-- Ausstieg: Close nach Forward-Horizont
-- Fee: 0.10% je Seite
-- Slippage: 0.05% je Seite
-- Nur historische Analyse
-- Kein Live Trading
+Signal:
+30 Vergleiche innerhalb eines 30-Kerzen-Fensters.
+
+Varianten:
+Close > Close N candles back
+
+N:
+2, 3, 5, 10
+
+Forward-Horizonte:
+5m, 10m, 15m, 30m, 60m,
+2h, 4h, 6h, 8h, 10h, 12h
 """
 
 import csv
 import statistics
-from pathlib import Path
+from datetime import datetime, timezone
 
 
 # ============================================================
 # CONFIG
 # ============================================================
 
-CSV_FILE = Path(
-    "data/BTC_USD_5m_polymarket_period.csv"
-)
+BTC_FILE = "data/BTC_USD_5m_polymarket_period.csv"
 
-WINDOW = 30
-THRESHOLD = 26
+CANDLE_WINDOW = 30
+MIN_POSITIVE_CANDLES = 26
 
 LOOKBACKS = [2, 3, 5, 10]
 
-# Anzahl BTC-5m-Kerzen
 HORIZONS = {
     "5m": 1,
     "10m": 2,
@@ -47,179 +52,173 @@ HORIZONS = {
     "4h": 48,
     "6h": 72,
     "8h": 96,
+    "10h": 120,
+    "12h": 144,
 }
 
-TRADING_FEE = 0.001
+# Kosten pro Seite
+FEE = 0.001
 SLIPPAGE = 0.0005
 
-# Einstieg + Ausstieg
-TOTAL_COST_PER_TRADE = (
-    2 * (TRADING_FEE + SLIPPAGE)
-)
+# Insgesamt:
+# Entry = 0.15 %
+# Exit  = 0.15 %
+# Roundtrip = 0.30 %
 
 
 # ============================================================
-# CSV LADEN
+# TIME
 # ============================================================
 
-def load_candles():
+def parse_timestamp(value):
+    value = str(value).strip()
 
-    if not CSV_FILE.exists():
-        raise FileNotFoundError(
-            f"BTC-Datei nicht gefunden: {CSV_FILE}"
+    try:
+        numeric = float(value)
+
+        # Unix seconds
+        if numeric > 10_000_000_000:
+            numeric /= 1000.0
+
+        return datetime.fromtimestamp(
+            numeric,
+            tz=timezone.utc
         )
+
+    except Exception:
+        pass
+
+    value = value.replace("Z", "+00:00")
+
+    dt = datetime.fromisoformat(value)
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    return dt.astimezone(timezone.utc)
+
+
+def format_time(dt):
+    return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+
+
+# ============================================================
+# LOAD BTC DATA
+# ============================================================
+
+def load_btc_data(path):
 
     candles = []
 
-    with CSV_FILE.open(
-        "r",
-        encoding="utf-8",
-        newline=""
-    ) as f:
+    with open(path, "r", encoding="utf-8") as f:
 
         reader = csv.DictReader(f)
 
         for row in reader:
 
             try:
-
-                timestamp = row["timestamp"]
-
-                open_price = float(
-                    row["open"]
+                timestamp_raw = (
+                    row.get("timestamp")
+                    or row.get("time")
+                    or row.get("datetime")
+                    or row.get("start")
                 )
 
-                close_price = float(
-                    row["close"]
-                )
+                open_price = float(row["open"])
+                close_price = float(row["close"])
 
-                candles.append(
-                    {
-                        "timestamp": timestamp,
-                        "open": open_price,
-                        "close": close_price,
-                    }
-                )
+                timestamp = parse_timestamp(timestamp_raw)
 
-            except (
-                KeyError,
-                ValueError,
-                TypeError
-            ):
+                candles.append({
+                    "timestamp": timestamp,
+                    "open": open_price,
+                    "close": close_price,
+                })
+
+            except Exception:
                 continue
 
-    candles.sort(
-        key=lambda x: x["timestamp"]
-    )
+    candles.sort(key=lambda x: x["timestamp"])
+
+    # Duplikate entfernen
+    unique = {}
+
+    for candle in candles:
+        unique[candle["timestamp"]] = candle
+
+    candles = [
+        unique[key]
+        for key in sorted(unique)
+    ]
 
     return candles
 
 
 # ============================================================
-# 26/30 SIGNAL
+# SIGNAL
 # ============================================================
 
-def positive_count(
-    candles,
-    end_index,
-    lookback
-):
+def count_positive(candles, end_index, lookback):
+
     """
-    Zählt exakt 30 Vergleiche.
+    Zählt exakt 30 Vergleiche:
 
-    Vergleich:
+    close[i] > close[i-lookback]
 
-        close[i] > close[i-lookback]
-
-    Es werden genau 30 Vergleiche
-    für das 30-Kerzen-Fenster durchgeführt.
+    für i innerhalb des 30-Kerzen-Fensters.
     """
 
-    start = end_index - WINDOW
+    start_index = end_index - CANDLE_WINDOW + 1
 
-    count = 0
+    positive = 0
 
-    for i in range(
-        start,
-        end_index
-    ):
+    for i in range(start_index, end_index + 1):
 
-        current_close = (
-            candles[i]["close"]
-        )
+        if i - lookback < 0:
+            return None
 
-        previous_close = (
-            candles[i - lookback]["close"]
-        )
+        if candles[i]["close"] > candles[i - lookback]["close"]:
+            positive += 1
 
-        if current_close > previous_close:
-            count += 1
-
-    return count
+    return positive
 
 
-# ============================================================
-# SIGNAL FINDEN
-# ============================================================
-
-def find_signals(
-    candles,
-    lookback
-):
-    """
-    Sucht alle aktiven 26/30-Fenster.
-
-    Wichtig:
-
-    Diese Funktion betrachtet jedes aktive
-    Fenster separat.
-
-    Dadurch können mehrere Signale
-    unmittelbar hintereinander entstehen.
-
-    Dies ist eine Forward-Analyse und noch
-    kein nicht-überlappender Portfolio-Backtest.
-    """
+def find_signals(candles, lookback):
 
     signals = []
 
-    start_index = (
-        WINDOW + lookback
-    )
+    previous_active = False
 
-    for index in range(
-        start_index,
-        len(candles)
-    ):
+    # Wir benötigen:
+    # 30 Kerzen
+    # + lookback Vorgänger
+    first_index = CANDLE_WINDOW - 1 + lookback
 
-        count = positive_count(
+    for i in range(first_index, len(candles)):
+
+        positive = count_positive(
             candles,
-            index,
+            i,
             lookback
         )
 
-        if count >= THRESHOLD:
+        if positive is None:
+            continue
 
-            # Einstieg am Open
-            # der nächsten BTC-5m-Kerze
-            entry_index = index
+        active = positive >= MIN_POSITIVE_CANDLES
 
-            if entry_index >= len(candles):
-                continue
+        # Nur Aktivierungssignal:
+        # inactive -> active
+        if active and not previous_active:
 
-            signals.append(
-                {
-                    "signal_index": index,
-                    "entry_index": entry_index,
-                    "timestamp": candles[
-                        index - 1
-                    ]["timestamp"],
-                    "signal_count": count,
-                    "entry_price": candles[
-                        entry_index
-                    ]["open"],
-                }
-            )
+            signals.append({
+                "index": i,
+                "timestamp": candles[i]["timestamp"],
+                "positive": positive,
+                "ratio": positive / CANDLE_WINDOW,
+            })
+
+        previous_active = active
 
     return signals
 
@@ -234,86 +233,66 @@ def calculate_forward_return(
     horizon_bars
 ):
 
-    entry_index = signal[
-        "entry_index"
-    ]
+    signal_index = signal["index"]
 
-    exit_index = (
-        entry_index
-        + horizon_bars
-        - 1
-    )
+    entry_index = signal_index + 1
+    exit_index = entry_index + horizon_bars
 
     if exit_index >= len(candles):
         return None
 
-    entry_price = candles[
-        entry_index
-    ]["open"]
-
-    exit_price = candles[
-        exit_index
-    ]["close"]
+    entry_price = candles[entry_index]["open"]
+    exit_price = candles[exit_index]["close"]
 
     if entry_price <= 0:
         return None
 
-    # Brutto-Return
-    gross_return = (
-        exit_price / entry_price
-    ) - 1.0
+    gross = (
+        (exit_price / entry_price) - 1.0
+    )
 
-    # Kosten:
-    # 0.10% Fee + 0.05% Slippage
-    # beim Einstieg
-    #
-    # 0.10% Fee + 0.05% Slippage
-    # beim Ausstieg
-    net_return = (
-        gross_return
-        - TOTAL_COST_PER_TRADE
+    # Entry-Kosten
+    entry_cost = FEE + SLIPPAGE
+
+    # Exit-Kosten
+    exit_cost = FEE + SLIPPAGE
+
+    net = (
+        (1.0 + gross)
+        * (1.0 - entry_cost)
+        * (1.0 - exit_cost)
+        - 1.0
     )
 
     return {
-        "gross": gross_return,
-        "net": net_return,
+        "signal_time": signal["timestamp"],
+        "entry_time": candles[entry_index]["timestamp"],
+        "exit_time": candles[exit_index]["timestamp"],
         "entry_price": entry_price,
         "exit_price": exit_price,
+        "gross": gross,
+        "net": net,
     }
 
 
 # ============================================================
-# STATISTIK
+# STATISTICS
 # ============================================================
 
-def calculate_statistics(
-    returns
-):
+def calculate_statistics(returns):
 
     if not returns:
         return None
-
-    # --------------------------------------------------------
-    # Brutto
-    # --------------------------------------------------------
 
     gross = [
         r["gross"]
         for r in returns
     ]
 
-    # --------------------------------------------------------
-    # Netto
-    # --------------------------------------------------------
-
     net = [
         r["net"]
         for r in returns
     ]
-
-    # --------------------------------------------------------
-    # Gewinner
-    # --------------------------------------------------------
 
     wins = [
         value
@@ -321,19 +300,11 @@ def calculate_statistics(
         if value > 0
     ]
 
-    # --------------------------------------------------------
-    # Verlierer
-    # --------------------------------------------------------
-
     losses = [
         value
         for value in net
         if value < 0
     ]
-
-    # --------------------------------------------------------
-    # Winrate
-    # --------------------------------------------------------
 
     winrate = (
         len(wins) / len(net)
@@ -341,242 +312,194 @@ def calculate_statistics(
         else 0.0
     )
 
-    # --------------------------------------------------------
-    # Profit Factor
-    # --------------------------------------------------------
-
-    positive_sum = sum(
-        wins
-    )
-
-    negative_sum = abs(
-        sum(losses)
-    )
+    positive_sum = sum(wins)
+    negative_sum = abs(sum(losses))
 
     if negative_sum > 0:
 
         profit_factor = (
-            positive_sum
-            / negative_sum
+            positive_sum /
+            negative_sum
         )
 
     elif positive_sum > 0:
 
-        profit_factor = float(
-            "inf"
-        )
+        profit_factor = float("inf")
 
     else:
 
         profit_factor = 0.0
 
-    # --------------------------------------------------------
-    # Ergebnis
-    # --------------------------------------------------------
-
     return {
         "n": len(net),
-
-        "avg_gross": statistics.mean(
-            gross
-        ),
-
-        "avg_net": statistics.mean(
-            net
-        ),
-
-        "median_net": statistics.median(
-            net
-        ),
-
+        "avg_gross": statistics.mean(gross),
+        "avg_net": statistics.mean(net),
+        "median_net": statistics.median(net),
         "winrate": winrate,
-
         "best": max(net),
-
         "worst": min(net),
-
         "profit_factor": profit_factor,
     }
 
 
 # ============================================================
-# FORWARD ANALYSE
+# MAIN ANALYSIS
 # ============================================================
 
-def analyze_rule(
-    candles,
-    lookback
-):
+def run_analysis():
 
-    signals = find_signals(
-        candles,
-        lookback
-    )
+    print("=" * 68)
+    print("POLYMARKET BTC FORWARD ANALYSIS")
+    print("VERSION 0.2.2")
+    print("=" * 68)
 
     print()
-    print("=" * 90)
-    print(
-        f"CLOSE > CLOSE {lookback}"
-    )
-    print("=" * 90)
+    print("PAPER ANALYSIS ONLY")
+    print("NO API KEYS")
+    print("NO WALLET")
+    print("NO REAL ORDERS")
+    print()
+
+    print("CONFIG")
+    print("-" * 68)
+    print(f"BTC file:             {BTC_FILE}")
+    print(f"Candle window:        {CANDLE_WINDOW}")
+    print(f"Minimum positive:     {MIN_POSITIVE_CANDLES}/30")
+    print(f"Lookbacks:            {LOOKBACKS}")
+    print(f"Fee per side:         {FEE:.2%}")
+    print(f"Slippage per side:    {SLIPPAGE:.2%}")
+    print(f"Roundtrip costs:      {(2 * (FEE + SLIPPAGE)):.2%}")
+
+    print()
+    print("HORIZONS")
+    print("-" * 68)
+
+    for name, bars in HORIZONS.items():
+        print(
+            f"{name:>5} = {bars:>3} BTC 5m candles"
+        )
 
     print()
 
-    print(
-        f"26/30-Signale: {len(signals)}"
-    )
+    # ========================================================
+    # LOAD
+    # ========================================================
+
+    candles = load_btc_data(BTC_FILE)
+
+    print("BTC DATA")
+    print("-" * 68)
+    print(f"Candles:              {len(candles):,}")
+
+    if candles:
+
+        print(
+            f"Start:                "
+            f"{format_time(candles[0]['timestamp'])}"
+        )
+
+        print(
+            f"End:                  "
+            f"{format_time(candles[-1]['timestamp'])}"
+        )
 
     print()
 
-    print(
-        "FORWARD-ERGEBNISSE"
-    )
+    # ========================================================
+    # ANALYSIS
+    # ========================================================
 
-    print("-" * 90)
+    all_results = {}
 
-    results = {}
+    for lookback in LOOKBACKS:
 
-    for (
-        name,
-        horizon_bars
-    ) in HORIZONS.items():
+        print()
+        print("=" * 68)
+        print(
+            f"CLOSE > CLOSE {lookback}"
+        )
+        print("=" * 68)
 
-        returns = []
+        signals = find_signals(
+            candles,
+            lookback
+        )
 
-        for signal in signals:
+        print()
+        print(
+            f"Activation signals:  {len(signals)}"
+        )
 
-            result = (
-                calculate_forward_return(
+        all_results[lookback] = {}
+
+        for horizon_name, horizon_bars in HORIZONS.items():
+
+            returns = []
+
+            for signal in signals:
+
+                result = calculate_forward_return(
                     candles,
                     signal,
                     horizon_bars
                 )
+
+                if result is not None:
+                    returns.append(result)
+
+            stats = calculate_statistics(
+                returns
             )
 
-            if result is not None:
+            all_results[lookback][horizon_name] = {
+                "signals": signals,
+                "returns": returns,
+                "stats": stats,
+            }
 
-                returns.append(
-                    result
+            print()
+
+            if stats is None:
+
+                print(
+                    f"{horizon_name:>5}: "
+                    f"keine ausreichenden Daten"
                 )
 
-        stats = calculate_statistics(
-            returns
-        )
+                continue
 
-        results[name] = stats
+            pf = stats["profit_factor"]
 
-        if stats is None:
+            if pf == float("inf"):
+                pf_text = "INF"
+            else:
+                pf_text = f"{pf:.2f}"
 
             print(
-                f"{name:<5} | keine Daten"
+                f"{horizon_name:>5} | "
+                f"N={stats['n']:>4} | "
+                f"Avg Net={stats['avg_net']:+.3%} | "
+                f"Median={stats['median_net']:+.3%} | "
+                f"Winrate={stats['winrate']:.2%} | "
+                f"Best={stats['best']:+.3%} | "
+                f"Worst={stats['worst']:+.3%} | "
+                f"PF={pf_text}"
             )
 
-            continue
+    # ========================================================
+    # SUMMARY
+    # ========================================================
 
-        pf = stats[
-            "profit_factor"
-        ]
-
-        if pf == float("inf"):
-
-            pf_text = "INF"
-
-        else:
-
-            pf_text = (
-                f"{pf:.2f}"
-            )
-
-        print(
-            f"{name:<5} | "
-            f"N={stats['n']:>4} | "
-            f"Ø brutto="
-            f"{stats['avg_gross']:+.3%} | "
-            f"Ø netto="
-            f"{stats['avg_net']:+.3%} | "
-            f"Median="
-            f"{stats['median_net']:+.3%} | "
-            f"Winrate="
-            f"{stats['winrate']:.2%} | "
-            f"Best="
-            f"{stats['best']:+.3%} | "
-            f"Worst="
-            f"{stats['worst']:+.3%} | "
-            f"PF="
-            f"{pf_text}"
-        )
-
-    return (
-        signals,
-        results
-    )
-
-
-# ============================================================
-# SIGNAL DETAILS
-# ============================================================
-
-def print_signal_details(
-    candles,
-    signals,
-    limit=20
-):
+    print()
+    print()
+    print("=" * 68)
+    print("SUMMARY")
+    print("=" * 68)
 
     print()
 
-    print(
-        "SIGNALDETAILS – ERSTE 20"
-    )
-
-    print("-" * 90)
-
-    for signal in signals[:limit]:
-
-        timestamp = (
-            signal["timestamp"]
-        )
-
-        count = (
-            signal["signal_count"]
-        )
-
-        entry = (
-            signal["entry_price"]
-        )
-
-        print(
-            f"{timestamp} | "
-            f"Signal={count}/30 | "
-            f"Entry=${entry:,.2f}"
-        )
-
-
-# ============================================================
-# GESAMTÜBERSICHT
-# ============================================================
-
-def print_summary(
-    all_results
-):
-
-    print()
-
-    print(
-        "=" * 120
-    )
-
-    print(
-        "GESAMTÜBERSICHT"
-    )
-
-    print(
-        "=" * 120
-    )
-
-    print()
-
-    print(
-        f"{'Regel':<25}"
+    header = (
+        f"{'Lookback':<12}"
         f"{'N':>6}"
         f"{'5m':>10}"
         f"{'15m':>10}"
@@ -586,407 +509,176 @@ def print_summary(
         f"{'4h':>10}"
         f"{'6h':>10}"
         f"{'8h':>10}"
+        f"{'10h':>10}"
+        f"{'12h':>10}"
     )
 
-    print(
-        "-" * 120
-    )
+    print(header)
+    print("-" * len(header))
 
-    for (
-        lookback,
-        results
-    ) in all_results.items():
+    summary_horizons = [
+        "5m",
+        "15m",
+        "30m",
+        "60m",
+        "2h",
+        "4h",
+        "6h",
+        "8h",
+        "10h",
+        "12h",
+    ]
 
-        rule_name = (
-            f"Close > Close {lookback}"
+    for lookback in LOOKBACKS:
+
+        row = f"Close {lookback:<5}"
+
+        base_stats = (
+            all_results[lookback]["5m"]["stats"]
         )
 
-        # ----------------------------------------------------
-        # N
-        # ----------------------------------------------------
+        if base_stats:
+            row += f"{base_stats['n']:>6}"
+        else:
+            row += f"{0:>6}"
 
-        n = 0
+        for horizon in summary_horizons:
 
-        for stats in results.values():
-
-            if stats is not None:
-
-                n = stats["n"]
-
-                break
-
-        # ----------------------------------------------------
-        # Horizonte
-        # ----------------------------------------------------
-
-        values = []
-
-        for horizon in [
-            "5m",
-            "15m",
-            "30m",
-            "60m",
-            "2h",
-            "4h",
-            "6h",
-            "8h",
-        ]:
-
-            stats = results.get(
-                horizon
+            stats = (
+                all_results[lookback][horizon]["stats"]
             )
 
             if stats is None:
 
-                values.append(
-                    "n/a"
+                row += f"{'n/a':>10}"
+
+            else:
+
+                row += (
+                    f"{stats['avg_net']:+.2%}"
+                    .rjust(10)
+                )
+
+        print(row)
+
+    # ========================================================
+    # SIGNAL DETAILS
+    # ========================================================
+
+    print()
+    print()
+    print("=" * 68)
+    print("SIGNAL DETAILS")
+    print("=" * 68)
+
+    for lookback in LOOKBACKS:
+
+        signals = (
+            all_results[lookback]["5m"]["signals"]
+        )
+
+        print()
+        print(
+            f"Close > Close {lookback}: "
+            f"{len(signals)} Aktivierungen"
+        )
+
+        for signal in signals:
+
+            print(
+                f"  "
+                f"{format_time(signal['timestamp'])} | "
+                f"{signal['positive']}/30 "
+                f"({signal['ratio']:.2%})"
+            )
+
+    # ========================================================
+    # DATA SUFFICIENCY
+    # ========================================================
+
+    print()
+    print()
+    print("=" * 68)
+    print("DATA SUFFICIENCY")
+    print("=" * 68)
+
+    for lookback in LOOKBACKS:
+
+        signals = (
+            all_results[lookback]["5m"]["signals"]
+        )
+
+        print()
+
+        print(
+            f"Close > Close {lookback}: "
+            f"{len(signals)} signals"
+        )
+
+        for horizon in HORIZONS:
+
+            stats = (
+                all_results[lookback][horizon]["stats"]
+            )
+
+            if stats:
+
+                print(
+                    f"  {horizon:>5}: "
+                    f"{stats['n']} verwertbare Signale"
                 )
 
             else:
 
-                values.append(
-                    f"{stats['avg_net']:+.2%}"
+                print(
+                    f"  {horizon:>5}: "
+                    f"keine verwertbaren Signale"
                 )
 
-        # ----------------------------------------------------
-        # Ausgabe
-        # ----------------------------------------------------
-
-        print(
-            f"{rule_name:<25}"
-            f"{n:>6}"
-            f"{values[0]:>10}"
-            f"{values[1]:>10}"
-            f"{values[2]:>10}"
-            f"{values[3]:>10}"
-            f"{values[4]:>10}"
-            f"{values[5]:>10}"
-            f"{values[6]:>10}"
-            f"{values[7]:>10}"
-        )
+    print()
+    print("=" * 68)
+    print("ANALYSIS COMPLETE")
+    print("=" * 68)
+    print()
+    print("Wichtig:")
+    print("- Die Forward-Werte sind Event-Study-Werte.")
+    print("- Signale können zeitlich überlappen.")
+    print("- Sie sind NICHT automatisch Portfolio-Renditen.")
+    print("- 26/30 bleibt die getestete Hypothese.")
+    print("- Keine Variante wird hier als Gewinner bewertet.")
+    print("- Keine Live-Trades wurden ausgeführt.")
 
 
 # ============================================================
-# MAIN
+# SELF TEST
 # ============================================================
 
-def main():
-
-    print(
-        "=" * 90
-    )
-
-    print(
-        "30-KERZEN BTC BOT"
-    )
-
-    print(
-        "POLYMARKET FORWARD BTC ANALYSIS"
-    )
-
-    print(
-        "=" * 90
-    )
+def self_test():
 
     print()
-
-    print(
-        "Version:              0.2.1"
-    )
-
-    print(
-        f"BTC Datei:            "
-        f"{CSV_FILE}"
-    )
-
-    print(
-        f"Fenster:              "
-        f"{WINDOW}"
-    )
-
-    print(
-        f"Schwelle:             "
-        f"{THRESHOLD}/30"
-    )
-
-    # --------------------------------------------------------
-    # LOOKBACKS
-    # --------------------------------------------------------
-
-    print()
-
-    print(
-        "LOOKBACKS"
-    )
-
-    print(
-        "-" * 90
-    )
-
-    for lookback in LOOKBACKS:
-
-        print(
-            f"Close > Close {lookback}"
-        )
-
-    # --------------------------------------------------------
-    # FORWARD HORIZONTE
-    # --------------------------------------------------------
-
-    print()
-
-    print(
-        "FORWARD HORIZONTE"
-    )
-
-    print(
-        "-" * 90
-    )
-
-    print(
-        "5m     =  1 BTC-5m-Kerze"
-    )
-
-    print(
-        "10m    =  2 BTC-5m-Kerzen"
-    )
-
-    print(
-        "15m    =  3 BTC-5m-Kerzen"
-    )
-
-    print(
-        "30m    =  6 BTC-5m-Kerzen"
-    )
-
-    print(
-        "60m    = 12 BTC-5m-Kerzen"
-    )
-
-    print(
-        "2h     = 24 BTC-5m-Kerzen"
-    )
-
-    print(
-        "4h     = 48 BTC-5m-Kerzen"
-    )
-
-    print(
-        "6h     = 72 BTC-5m-Kerzen"
-    )
-
-    print(
-        "8h     = 96 BTC-5m-Kerzen"
-    )
-
-    # --------------------------------------------------------
-    # KOSTEN
-    # --------------------------------------------------------
-
-    print()
-
-    print(
-        "KOSTEN"
-    )
-
-    print(
-        "-" * 90
-    )
-
-    print(
-        f"Trading Fee:          "
-        f"{TRADING_FEE:.2%}"
-    )
-
-    print(
-        f"Slippage:             "
-        f"{SLIPPAGE:.2%}"
-    )
-
-    print(
-        f"Gesamtkosten:         "
-        f"{TOTAL_COST_PER_TRADE:.2%}"
-    )
-
-    print()
-
-    print(
-        "=" * 90
-    )
-
-    # --------------------------------------------------------
-    # BTC LADEN
-    # --------------------------------------------------------
-
-    print()
-
-    print(
-        "BTC-DATEN LADEN"
-    )
-
-    print(
-        "-" * 90
-    )
-
-    candles = load_candles()
-
-    print(
-        f"BTC Kerzen:      "
-        f"{len(candles):,}"
-    )
-
-    if candles:
-
-        print(
-            f"BTC Zeitraum:    "
-            f"{candles[0]['timestamp']} "
-            f"→ "
-            f"{candles[-1]['timestamp']}"
-        )
-
-    # --------------------------------------------------------
-    # FORWARD TEST
-    # --------------------------------------------------------
-
-    print()
-
-    print(
-        "=" * 90
-    )
-
-    print(
-        "26/30 FORWARD-TEST"
-    )
-
-    print(
-        "=" * 90
-    )
-
-    print()
-
-    print(
-        "Interpretation:"
-    )
-
-    print(
-        "Ein Signal entsteht, wenn "
-        "mindestens 26 von 30 Vergleichen "
-        "positiv sind."
-    )
-
-    print(
-        "Der Einstieg erfolgt am Open "
-        "der nächsten BTC-5m-Kerze."
-    )
-
-    print(
-        "Der Ausstieg erfolgt nach dem "
-        "jeweiligen Forward-Horizont "
-        "zum Close."
-    )
-
-    print(
-        "Netto berücksichtigt Gebühr + "
-        "Slippage beim Einstieg und beim "
-        "Ausstieg."
-    )
-
-    print(
-        "6h = 72 Kerzen, "
-        "8h = 96 Kerzen."
-    )
-
-    # --------------------------------------------------------
-    # ALLE REGELN
-    # --------------------------------------------------------
-
-    all_results = {}
-
-    for lookback in LOOKBACKS:
-
-        (
-            signals,
-            results
-        ) = analyze_rule(
-            candles,
-            lookback
-        )
-
-        print_signal_details(
-            candles,
-            signals
-        )
-
-        all_results[
-            lookback
-        ] = results
-
-    # --------------------------------------------------------
-    # SUMMARY
-    # --------------------------------------------------------
-
-    print_summary(
-        all_results
-    )
-
-    # --------------------------------------------------------
-    # SECURITY
-    # --------------------------------------------------------
-
-    print()
-
-    print(
-        "=" * 90
-    )
-
-    print(
-        "SICHERHEITSSTATUS"
-    )
-
-    print(
-        "=" * 90
-    )
-
-    print()
-
-    print(
-        "HISTORISCHE DATENANALYSE"
-    )
-
-    print(
-        "PAPER TRADING ONLY"
-    )
-
-    print(
-        "KEIN LIVE TRADING"
-    )
-
-    print(
-        "KEINE API KEYS"
-    )
-
-    print(
-        "KEIN WALLET"
-    )
-
-    print(
-        "KEINE PRIVATEN SCHLÜSSEL"
-    )
-
-    print(
-        "KEINE ECHTEN ORDERS"
-    )
-
-    print()
-
-    print(
-        "=" * 90
-    )
+    print("SELF TEST")
+    print("-" * 68)
+
+    assert len(HORIZONS) == 11
+    assert HORIZONS["10h"] == 120
+    assert HORIZONS["12h"] == 144
+
+    assert MIN_POSITIVE_CANDLES == 26
+    assert CANDLE_WINDOW == 30
+
+    print("PASS: 10h = 120 Kerzen")
+    print("PASS: 12h = 144 Kerzen")
+    print("PASS: 26/30 threshold")
+    print("PASS: 30-candle window")
+    print("PASS: 11 horizons")
+    print("PASS: Paper analysis only")
 
 
 # ============================================================
-# START
+# RUN
 # ============================================================
 
 if __name__ == "__main__":
-    main()
+
+    self_test()
+    run_analysis()
