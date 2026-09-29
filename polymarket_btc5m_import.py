@@ -1,42 +1,76 @@
 """
 30-Kerzen BTC Bot
 Polymarket BTC 5m Importer
-Version 0.1.0
 
-Zweck:
-- Kleine veröffentlichte Polymarket BTC-5m-Matrix einlesen
-- Datenstruktur prüfen
-- BTC-5m-Märkte validieren
-- Zeitbereich und Spalten ausgeben
-- Noch KEIN Trading
-- Noch KEIN Signal-Backtest
+Version: 0.1.0
 
-Quelle:
-Filip303/Polymarket
-data/sii_exec_matrix_btc5m.parquet
+Zweck
+-----
+Dieses Programm:
 
-Quelle laut Repository:
-23.338 BTC-5m-Märkte
-2026-02-12 bis 2026-05-04 UTC
+1. liest den veröffentlichten Polymarket BTC-5m-Datensatz ein
+2. prüft die Parquet-Datei
+3. zeigt Struktur und Spalten
+4. untersucht Zeitinformationen
+5. untersucht label_up
+6. untersucht Preisfelder
+7. schreibt eine CSV-Kopie für weitere Analysen
+
+WICHTIG
+-------
+Dieses Programm führt KEIN Trading durch.
+
+- Kein Live Trading
+- Keine API Keys
+- Kein Wallet
+- Keine echten Orders
+- Keine privaten Schlüssel
+
+Es handelt sich ausschließlich um Datenanalyse.
+
+Quelle
+------
+sii_exec_matrix_btc5m.parquet
+
+Die Datei wird durch GitHub Actions automatisch heruntergeladen.
 """
+
 
 from pathlib import Path
 import sys
 
+
+# ============================================================
+# ABHÄNGIGKEITEN
+# ============================================================
+
 try:
     import pandas as pd
 except ImportError:
-    print("FEHLER: pandas fehlt.")
-    print("Installation: pip install pandas pyarrow")
+    print()
+    print("FEHLER: pandas ist nicht installiert.")
+    print()
+    print("Installation:")
+    print("pip install pandas")
+    print()
     sys.exit(1)
+
 
 try:
     import pyarrow.parquet as pq
 except ImportError:
-    print("FEHLER: pyarrow fehlt.")
-    print("Installation: pip install pyarrow")
+    print()
+    print("FEHLER: pyarrow ist nicht installiert.")
+    print()
+    print("Installation:")
+    print("pip install pyarrow")
+    print()
     sys.exit(1)
 
+
+# ============================================================
+# KONFIGURATION
+# ============================================================
 
 PROJECT_NAME = "30-Kerzen BTC Bot"
 VERSION = "0.1.0"
@@ -47,10 +81,15 @@ SOURCE_FILE = DATA_DIR / "sii_exec_matrix_btc5m.parquet"
 OUTPUT_FILE = DATA_DIR / "polymarket_btc5m.csv"
 
 
+# ============================================================
+# AUSGABE
+# ============================================================
+
 def print_header():
+    print()
     print("=" * 70)
     print(PROJECT_NAME)
-    print("POLYMARKET BTC 5m IMPORT")
+    print("POLYMARKET BTC 5m IMPORTER")
     print("=" * 70)
     print(f"Version:       {VERSION}")
     print(f"Quelle:        {SOURCE_FILE}")
@@ -58,38 +97,66 @@ def print_header():
     print("=" * 70)
 
 
-def check_source():
-    if not SOURCE_FILE.exists():
-        print()
-        print("FEHLER: Quelldatei nicht gefunden.")
-        print()
-        print(f"Erwartet:")
-        print(f"  {SOURCE_FILE}")
-        print()
-        print("Bitte die Datei")
-        print("sii_exec_matrix_btc5m.parquet")
-        print("in den Ordner data/ legen.")
-        print()
-        return False
+# ============================================================
+# QUELLDATEI PRÜFEN
+# ============================================================
 
-    size_mb = SOURCE_FILE.stat().st_size / (1024 * 1024)
+def check_source():
+    """
+    Prüft, ob die Parquet-Datei vorhanden ist.
+    """
 
     print()
     print("QUELLDATEI")
     print("-" * 70)
+
+    if not SOURCE_FILE.exists():
+
+        print("FEHLER: Quelldatei nicht gefunden.")
+        print()
+        print(f"Erwartete Datei:")
+        print(f"  {SOURCE_FILE}")
+        print()
+        print("Die GitHub Action sollte die Datei automatisch")
+        print("herunterladen.")
+        print()
+
+        return False
+
+    file_size_mb = SOURCE_FILE.stat().st_size / (1024 * 1024)
+
     print(f"Datei:         {SOURCE_FILE}")
-    print(f"Größe:         {size_mb:.2f} MB")
+    print(f"Größe:         {file_size_mb:.2f} MB")
     print("Status:        GEFUNDEN")
 
     return True
 
 
+# ============================================================
+# PARQUET EINLESEN
+# ============================================================
+
 def load_parquet():
+    """
+    Liest die komplette Parquet-Datei ein.
+    """
+
     print()
     print("PARQUET EINLESEN")
     print("-" * 70)
 
-    table = pq.read_table(SOURCE_FILE)
+    try:
+
+        table = pq.read_table(SOURCE_FILE)
+
+    except Exception as exc:
+
+        print()
+        print("FEHLER beim Lesen der Parquet-Datei:")
+        print(exc)
+        print()
+
+        sys.exit(1)
 
     print(f"Zeilen:        {table.num_rows:,}")
     print(f"Spalten:       {table.num_columns}")
@@ -99,61 +166,138 @@ def load_parquet():
     print("-" * 70)
 
     for field in table.schema:
-        print(f"{field.name:30} {field.type}")
 
-    df = table.to_pandas()
+        print(
+            f"{field.name:35} "
+            f"{field.type}"
+        )
+
+    try:
+
+        df = table.to_pandas()
+
+    except Exception as exc:
+
+        print()
+        print("FEHLER beim Umwandeln in pandas:")
+        print(exc)
+        print()
+
+        sys.exit(1)
 
     return df
 
 
+# ============================================================
+# DATAFRAME PRÜFEN
+# ============================================================
+
 def inspect_dataframe(df):
+    """
+    Grundlegende Prüfung der eingelesenen Daten.
+    """
+
     print()
     print("DATENPRÜFUNG")
     print("-" * 70)
 
-    print(f"Zeilen:        {len(df):,}")
-    print(f"Spalten:       {len(df.columns)}")
+    print(f"Anzahl Zeilen:       {len(df):,}")
+    print(f"Anzahl Spalten:      {len(df.columns)}")
 
     print()
     print("SPALTENNAMEN")
     print("-" * 70)
 
     for column in df.columns:
-        print(column)
+
+        print(f"  {column}")
 
     print()
-    print("ERSTE ZEILEN")
+    print("ERSTE 5 ZEILEN")
     print("-" * 70)
 
-    print(df.head(5).to_string(index=False))
+    if len(df) > 0:
+
+        print(
+            df.head(5).to_string(
+                index=False
+            )
+        )
+
+    else:
+
+        print("Keine Daten vorhanden.")
 
     print()
-    print("LETZTE ZEILEN")
+    print("LETZTE 5 ZEILEN")
     print("-" * 70)
 
-    print(df.tail(5).to_string(index=False))
+    if len(df) > 0:
 
+        print(
+            df.tail(5).to_string(
+                index=False
+            )
+        )
+
+    else:
+
+        print("Keine Daten vorhanden.")
+
+
+# ============================================================
+# ZEITSPALTEN SUCHEN
+# ============================================================
 
 def find_time_columns(df):
+    """
+    Sucht bekannte Zeitspalten.
+    """
+
     candidates = [
+
         "timestamp",
+
         "timestamp_ms",
+
+        "timestamp_s",
+
+        "time",
+
         "start_time",
+
         "market_start",
+
         "start_timestamp",
+
         "end_time",
+
+        "created_at",
+
+        "updated_at",
+
     ]
 
     found = []
 
     for column in candidates:
+
         if column in df.columns:
+
             found.append(column)
 
     return found
 
 
+# ============================================================
+# ZEITINFORMATIONEN
+# ============================================================
+
 def inspect_time(df):
+    """
+    Prüft vorhandene Zeitspalten.
+    """
+
     print()
     print("ZEITINFORMATION")
     print("-" * 70)
@@ -161,108 +305,366 @@ def inspect_time(df):
     time_columns = find_time_columns(df)
 
     if not time_columns:
-        print("Keine bekannte Zeitspalte automatisch gefunden.")
+
+        print(
+            "Keine bekannte Zeitspalte "
+            "automatisch gefunden."
+        )
+
         return
 
     for column in time_columns:
+
         print()
         print(f"Spalte: {column}")
 
         series = df[column]
 
-        print(f"Datentyp: {series.dtype}")
+        print(
+            f"Datentyp: {series.dtype}"
+        )
 
         try:
+
             if pd.api.types.is_numeric_dtype(series):
-                maximum = series.max()
 
+                valid_values = series.dropna()
+
+                if len(valid_values) == 0:
+
+                    print(
+                        "Keine gültigen Werte."
+                    )
+
+                    continue
+
+                maximum = valid_values.max()
+
+                minimum = valid_values.min()
+
+                # Millisekunden
                 if maximum > 10_000_000_000:
-                    dt = pd.to_datetime(series, unit="ms", utc=True)
-                else:
-                    dt = pd.to_datetime(series, unit="s", utc=True)
-            else:
-                dt = pd.to_datetime(series, utc=True, errors="coerce")
 
-            print(f"Minimum:  {dt.min()}")
-            print(f"Maximum:  {dt.max()}")
+                    dt = pd.to_datetime(
+                        series,
+                        unit="ms",
+                        utc=True,
+                        errors="coerce",
+                    )
+
+                # Sekunden
+                else:
+
+                    dt = pd.to_datetime(
+                        series,
+                        unit="s",
+                        utc=True,
+                        errors="coerce",
+                    )
+
+            else:
+
+                dt = pd.to_datetime(
+                    series,
+                    utc=True,
+                    errors="coerce",
+                )
+
+            print(
+                f"Minimum:  {dt.min()}"
+            )
+
+            print(
+                f"Maximum:  {dt.max()}"
+            )
+
+            valid_count = dt.notna().sum()
+
+            print(
+                f"Gültige Werte: {valid_count:,}"
+            )
 
         except Exception as exc:
-            print(f"Zeitprüfung nicht möglich: {exc}")
 
+            print(
+                f"Zeitprüfung nicht möglich: {exc}"
+            )
+
+
+# ============================================================
+# LABEL UP
+# ============================================================
 
 def inspect_labels(df):
+    """
+    Prüft label_up.
+    """
+
     print()
-    print("LABEL-PRÜFUNG")
+    print("LABEL-UP-PRÜFUNG")
     print("-" * 70)
 
     if "label_up" not in df.columns:
-        print("Keine Spalte 'label_up' gefunden.")
+
+        print(
+            "Keine Spalte 'label_up' gefunden."
+        )
+
         return
 
-    print("label_up vorhanden.")
+    print(
+        "Spalte 'label_up' gefunden."
+    )
 
     print()
     print("Verteilung:")
 
-    print(df["label_up"].value_counts(dropna=False).to_string())
+    try:
 
+        distribution = (
+            df["label_up"]
+            .value_counts(
+                dropna=False
+            )
+        )
+
+        print(
+            distribution.to_string()
+        )
+
+    except Exception as exc:
+
+        print(
+            f"Fehler bei label_up: {exc}"
+        )
+
+
+# ============================================================
+# PREISSPALTEN
+# ============================================================
 
 def inspect_price_columns(df):
+    """
+    Sucht nach offensichtlichen Preisfeldern.
+    """
+
     print()
     print("PREISSPALTEN")
     print("-" * 70)
 
     keywords = [
+
         "price",
+
         "up",
+
         "down",
+
         "ask",
+
         "bid",
+
         "mid",
+
+        "prob",
+
+        "quote",
+
     ]
 
     found = []
 
     for column in df.columns:
+
         name = str(column).lower()
 
-        if any(keyword in name for keyword in keywords):
+        if any(
+            keyword in name
+            for keyword in keywords
+        ):
+
             found.append(column)
 
     if not found:
-        print("Keine offensichtlichen Preisspalten gefunden.")
+
+        print(
+            "Keine offensichtlichen "
+            "Preisspalten gefunden."
+        )
+
         return
 
     for column in found:
-        print(column)
 
+        print(
+            f"  {column}"
+        )
+
+
+# ============================================================
+# NULL-PRÜFUNG
+# ============================================================
+
+def inspect_missing_values(df):
+    """
+    Prüft fehlende Werte.
+    """
+
+    print()
+    print("MISSING VALUES")
+    print("-" * 70)
+
+    missing = df.isna().sum()
+
+    missing = missing[
+        missing > 0
+    ]
+
+    if len(missing) == 0:
+
+        print(
+            "Keine fehlenden Werte gefunden."
+        )
+
+        return
+
+    print(
+        missing.to_string()
+    )
+
+
+# ============================================================
+# DUPLIKATE
+# ============================================================
+
+def inspect_duplicates(df):
+    """
+    Prüft doppelte Datensätze.
+    """
+
+    print()
+    print("DUPLIKATE")
+    print("-" * 70)
+
+    duplicates = df.duplicated().sum()
+
+    print(
+        f"Doppelte Zeilen: {duplicates:,}"
+    )
+
+
+# ============================================================
+# CSV SPEICHERN
+# ============================================================
 
 def save_csv(df):
+    """
+    Speichert eine CSV-Kopie.
+    """
+
     print()
     print("CSV ERZEUGEN")
     print("-" * 70)
 
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-
-    df.to_csv(
-        OUTPUT_FILE,
-        index=False,
+    DATA_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
     )
 
-    print(f"Gespeichert:   {OUTPUT_FILE}")
+    try:
 
-    size_mb = OUTPUT_FILE.stat().st_size / (1024 * 1024)
+        df.to_csv(
+            OUTPUT_FILE,
+            index=False,
+        )
 
-    print(f"CSV-Größe:     {size_mb:.2f} MB")
+    except Exception as exc:
 
+        print()
+        print("FEHLER beim Speichern:")
+        print(exc)
+        print()
 
-def main():
-    print_header()
-
-    if not check_source():
         sys.exit(1)
 
+    file_size_mb = (
+        OUTPUT_FILE.stat().st_size
+        / (1024 * 1024)
+    )
+
+    print(
+        f"Gespeichert:   {OUTPUT_FILE}"
+    )
+
+    print(
+        f"CSV-Größe:     {file_size_mb:.2f} MB"
+    )
+
+
+# ============================================================
+# ZUSAMMENFASSUNG
+# ============================================================
+
+def print_summary(df):
+    """
+    Gibt eine kompakte Zusammenfassung aus.
+    """
+
+    print()
+    print("=" * 70)
+    print("IMPORT-ZUSAMMENFASSUNG")
+    print("=" * 70)
+
+    print(
+        f"Datensätze:       {len(df):,}"
+    )
+
+    print(
+        f"Spalten:          {len(df.columns)}"
+    )
+
+    print(
+        f"Parquet-Datei:    {SOURCE_FILE}"
+    )
+
+    print(
+        f"CSV-Datei:        {OUTPUT_FILE}"
+    )
+
+    print()
+    print(
+        "Der Datensatz wurde erfolgreich "
+        "eingelesen und geprüft."
+    )
+
+    print("=" * 70)
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def main():
+
+    print_header()
+
+    # --------------------------------------------------------
+    # Quelldatei
+    # --------------------------------------------------------
+
+    if not check_source():
+
+        sys.exit(1)
+
+    # --------------------------------------------------------
+    # Daten laden
+    # --------------------------------------------------------
+
     df = load_parquet()
+
+    # --------------------------------------------------------
+    # Prüfungen
+    # --------------------------------------------------------
 
     inspect_dataframe(df)
 
@@ -272,23 +674,57 @@ def main():
 
     inspect_price_columns(df)
 
+    inspect_missing_values(df)
+
+    inspect_duplicates(df)
+
+    # --------------------------------------------------------
+    # CSV
+    # --------------------------------------------------------
+
     save_csv(df)
+
+    # --------------------------------------------------------
+    # Zusammenfassung
+    # --------------------------------------------------------
+
+    print_summary(df)
+
+    # --------------------------------------------------------
+    # Sicherheitshinweis
+    # --------------------------------------------------------
 
     print()
     print("=" * 70)
-    print("IMPORT ABGESCHLOSSEN")
+    print("SICHERHEITSSTATUS")
     print("=" * 70)
     print()
     print("PAPER TRADING ONLY")
     print("KEIN LIVE TRADING")
     print("KEINE API KEYS")
     print("KEIN WALLET")
+    print("KEINE PRIVATEN SCHLÜSSEL")
     print("KEINE ECHTEN ORDERS")
     print()
-    print("Nächster Schritt:")
-    print("BTC-5m-Daten mit unseren BTC-Kerzen verbinden.")
     print("=" * 70)
 
+    print()
+    print(
+        "NÄCHSTER SCHRITT:"
+    )
+
+    print(
+        "Polymarket BTC-5m-Daten mit "
+        "den BTC-5m-Kerzen verbinden."
+    )
+
+    print()
+
+
+# ============================================================
+# START
+# ============================================================
 
 if __name__ == "__main__":
+
     main()
